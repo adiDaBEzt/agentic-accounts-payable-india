@@ -3,4 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 invoices.db
+demo_invoices.db
+*.db
+*.zip
 .env
+**/.env
