@@ -143,29 +143,19 @@ async def api_process_document(
 
         # 4. Execute Flow or Agent
         if execution_mode == "agent_two_turn":
-            agent_res, thread_id, run_id, run_ms = wxo_client.run_agent_two_turn(s3_files, token)
-            raw_kvps = agent_res.get("kvps") or []
-            normalized_kvps, avg_conf = normalize_wxo_kvps(raw_kvps)
-            structured_doc = agent_res.get("structured_invoice") or {}
-            logic_summary = agent_res.get("logic_summary") or {}
-            extracted_text = agent_res.get("extracted_text") or ""
+            flow_data, thread_id, run_id, t1_ms, t2_ms = wxo_client.run_agent_two_turn(s3_files, token)
             telemetry.append(
                 {
                     "step": 3,
                     "name": "Conversational Agent 2-Turn Execution",
                     "endpoint": "POST /v1/orchestrate/runs",
-                    "duration_ms": run_ms,
+                    "duration_ms": round(t1_ms + t2_ms, 1),
                     "status": "completed",
                     "detail": f"Agent {AGENT_ID} executed invoice_idp_flow tool (Thread: {thread_id[:8]}...)",
                 }
             )
         else:
             flow_data, instance_id, flow_ms = wxo_client.run_direct_flow(s3_url, token)
-            raw_kvps = flow_data.get("kvps") or []
-            normalized_kvps, avg_conf = normalize_wxo_kvps(raw_kvps)
-            structured_doc = flow_data.get("structured_invoice") or {}
-            logic_summary = flow_data.get("logic_summary") or {}
-            extracted_text = flow_data.get("extracted_text") or ""
             telemetry.append(
                 {
                     "step": 3,
@@ -176,6 +166,12 @@ async def api_process_document(
                     "detail": f"Async flow instance {instance_id} completed (docproc + Logic + GenAI)",
                 }
             )
+
+        raw_kvps = flow_data.get("kvps") or []
+        normalized_kvps, avg_conf = normalize_wxo_kvps(raw_kvps)
+        structured_doc = flow_data.get("structured_invoice") or {}
+        logic_summary = flow_data.get("logic_summary") or {}
+        extracted_text = flow_data.get("extracted_text") or ""
 
         # 5. Local Database Persistence
         saved_record = save_document_record(

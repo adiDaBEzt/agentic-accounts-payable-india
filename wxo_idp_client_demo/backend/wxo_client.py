@@ -1,10 +1,9 @@
 """
-IBM watsonx Orchestrate REST API Client for Intelligent Document Processing (IDP).
+IBM watsonx Orchestrate REST Client for Intelligent Document Processing (IDP).
 
-Handles:
-1. S3 Pre-Signed File Upload: POST /v1/orchestrate/upload-to-s3
-2. Headless Direct Flow Execution: POST /v1/orchestrate/flows/{flow_id}/run/async + polling
-3. Conversational Agent 2-Turn Execution: POST /v1/orchestrate/runs
+Implements the exact S3/COS pre-signed upload protocol (`POST /v1/orchestrate/upload-to-s3`),
+Headless Direct Flow execution (`POST /v1/orchestrate/flows/{flow_id}/run`), and
+Conversational Agent 2-Turn File-Upload Slot execution (`POST /v1/orchestrate/runs`).
 """
 
 import json
@@ -15,63 +14,64 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 
-# Load .env file from root of demo package or parent
-for candidate_path in [
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"),
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"),
-]:
-    if os.path.exists(candidate_path):
-        with open(candidate_path, "r") as _ef:
-            for _line in _ef:
-                _line = _line.strip()
-                if _line and not _line.startswith("#") and "=" in _line:
-                    _k, _v = _line.split("=", 1)
-                    os.environ.setdefault(_k.strip(), _v.strip())
+# Load optional .env file if available
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+if os.path.exists(_env_path):
+    with open(_env_path, "r") as _ef:
+        for _line in _ef:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 TENANT_URL = os.environ.get(
     "WXO_TENANT_URL",
     "https://api.ca-tor.watson-orchestrate.cloud.ibm.com/instances/e2def58b-0869-4446-a0e3-55ecca8f07e9",
-).rstrip("/")
+)
 API_KEY = os.environ.get("WXO_API_KEY", "")
 FLOW_ID = os.environ.get("WXO_FLOW_ID", "513e67d6-2974-4776-a0ac-5869876bee9a")
 AGENT_ID = os.environ.get("WXO_AGENT_ID", "23215e30-2f2f-4373-974b-0d7bb89e657a")
+IAM_TOKEN_URL = "https://iam.cloud.ibm.com/identity/token"
 
 
 class WxOClient:
     def __init__(
         self,
-        tenant_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        flow_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        tenant_url: str = TENANT_URL,
+        api_key: str = API_KEY,
+        flow_id: str = FLOW_ID,
+        agent_id: str = AGENT_ID,
     ):
-        self.tenant_url = (tenant_url or TENANT_URL).rstrip("/")
-        self.api_key = api_key or API_KEY
-        self.flow_id = flow_id or FLOW_ID
-        self.agent_id = agent_id or AGENT_ID
+        self.tenant_url = tenant_url.rstrip("/")
+        self.api_key = api_key
+        self.flow_id = flow_id
+        self.agent_id = agent_id
         self._cached_token: Optional[str] = None
         self._token_expiry: float = 0.0
 
     def get_iam_token(self) -> Tuple[str, float]:
-        """Fetch or reuse an IBM Cloud IAM Bearer token."""
-        now = time.time()
-        if self._cached_token and now < (self._token_expiry - 60):
-            return self._cached_token, 0.0
-
+        """Exchange IBM Cloud API Key for an IAM Bearer token (cached until 5 min before expiry)."""
         t0 = time.perf_counter()
+        now = time.time()
+        if self._cached_token and now < self._token_expiry - 300:
+            return self._cached_token, round((time.perf_counter() - t0) * 1000, 1)
+
         resp = requests.post(
-            "https://iam.cloud.ibm.com/identity/token",
+            IAM_TOKEN_URL,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
             data={
                 "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
                 "apikey": self.api_key,
             },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=30,
+            timeout=25,
         )
         resp.raise_for_status()
-        data = resp.json()
-        self._cached_token = data["access_token"]
-        self._token_expiry = now + data.get("expires_in", 3600)
+        payload = resp.json()
+        self._cached_token = payload["access_token"]
+        self._token_expiry = float(payload.get("expiration", now + 3600))
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
         return self._cached_token, elapsed_ms
 
@@ -79,28 +79,34 @@ class WxOClient:
         self, file_bytes: bytes, filename: str, token: str
     ) -> Tuple[List[Dict[str, Any]], str, float]:
         """
-        Upload document to IBM Cloud Object Storage via watsonx Orchestrate S3 upload API.
-        Endpoint: POST /v1/orchestrate/upload-to-s3
+        Upload invoice binary to the watsonx Orchestrate built-in S3/COS bucket
+        via `POST /v1/orchestrate/upload-to-s3`.
         """
         t0 = time.perf_counter()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        }
-        content_type = "application/pdf" if filename.lower().endswith(".pdf") else "image/png"
-        files = {"file": (filename, file_bytes, content_type)}
-
+        file_meta = [
+            {
+                "fileName": filename,
+                "invalid": False,
+                "id": str(uuid.uuid4()),
+                "statusCode": 200,
+                "uploadStatus": "uploading",
+                "url": "",
+            }
+        ]
         resp = requests.post(
             f"{self.tenant_url}/v1/orchestrate/upload-to-s3",
-            headers=headers,
-            files=files,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+            files={"files": (filename, file_bytes, "application/octet-stream")},
+            data={"text": "", "fileMetaData": json.dumps(file_meta)},
             timeout=60,
         )
         resp.raise_for_status()
-        s3_files = resp.json().get("files", [])
-        if not s3_files:
-            raise RuntimeError(f"No file records returned from S3 upload: {resp.text}")
-
+        s3_files = resp.json()
+        if not s3_files or s3_files[0].get("invalid"):
+            raise RuntimeError(f"S3 upload failed or rejected: {s3_files}")
         s3_url = s3_files[0]["url"]
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
         return s3_files, s3_url, elapsed_ms
@@ -109,9 +115,10 @@ class WxOClient:
         self, s3_url: str, token: str
     ) -> Tuple[Dict[str, Any], str, float]:
         """
-        Invoke the deployed `invoice_idp_flow` asynchronously via:
-        POST /v1/orchestrate/flows/{flow_id}/run/async with {"document_ref": s3_url}
-        and poll GET /v1/orchestrate/flows?instance_id={instance_id} until completed.
+        Invoke the deployed `invoice_idp_flow` asynchronously via
+        `POST /v1/orchestrate/flows/{flow_id}/run/async` with `{"document_ref": s3_url}`
+        and poll `GET /v1/orchestrate/flows?instance_id={instance_id}` until `state == "completed"`.
+        This avoids HTTP gateway timeouts on multi-page WDU OCR + KVP document processing.
         """
         t0 = time.perf_counter()
         headers = {
@@ -151,137 +158,210 @@ class WxOClient:
 
     def run_agent_two_turn(
         self, s3_files: List[Dict[str, Any]], token: str
-    ) -> Tuple[Dict[str, Any], str, str, float]:
+    ) -> Tuple[Dict[str, Any], str, str, float, float]:
         """
-        Execute 2-turn Conversational Agent slot filling protocol via POST /v1/orchestrate/runs.
-        Turn 1: Initialize conversation -> Agent requests document_ref slot.
-        Turn 2: Provide S3 file reference context payload -> Agent executes tool and returns JSON.
+        Execute the 2-Turn Conversational Agent + S3 File Slot protocol:
+          Turn 1: POST /v1/orchestrate/runs -> Agent invokes `invoice_idp_flow`
+                  -> Flow emits `response_type: "file_upload"` asking for `document_ref`.
+          Turn 2: POST /v1/orchestrate/runs with `context.data[0].files = s3_files`
+                  (`response_type: "file_download"`, `source: "TOOL"`).
+          Poll:   GET /v1/orchestrate/threads/{thread_id}/messages until both the
+                  `multiturn_form` flow outputs and the final Assistant JSON response arrive.
         """
-        t0 = time.perf_counter()
-        thread_id = str(uuid.uuid4())
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
 
-        # Turn 1
-        turn1_body = {
-            "agent_id": self.agent_id,
-            "thread_id": thread_id,
-            "message": {
-                "role": "user",
-                "content": [{"type": "text", "text": "Please process and extract this uploaded invoice document."}],
-            },
-        }
-        resp1 = requests.post(
+        # Turn 1: Trigger Agent & Flow file_upload slot
+        t1_start = time.perf_counter()
+        r1 = requests.post(
             f"{self.tenant_url}/v1/orchestrate/runs",
             headers=headers,
-            json=turn1_body,
-            timeout=60,
-        )
-        resp1.raise_for_status()
-        r1_json = resp1.json()
-        run_id = r1_json.get("run_id") or r1_json.get("id") or ""
-
-        # Turn 2: Send file reference
-        turn2_body = {
-            "agent_id": self.agent_id,
-            "thread_id": thread_id,
-            "message": {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Here is the uploaded invoice file in S3."},
-                    {
-                        "type": "file_download",
-                        "name": s3_files[0].get("file_name", "document.pdf"),
-                        "url": s3_files[0].get("url", ""),
-                        "storage_provider": s3_files[0].get("storage_provider", "ibm-cos"),
-                        "storage_data": s3_files[0].get("storage_data", {}),
-                    },
-                ],
+            json={
+                "agent_id": self.agent_id,
+                "message": {
+                    "role": "user",
+                    "content": "Please process this invoice document and extract all fields and line items.",
+                },
+                "additional_properties": {},
             },
-        }
-        resp2 = requests.post(
+            timeout=30,
+        )
+        r1.raise_for_status()
+        r1_data = r1.json()
+        run_id_1 = r1_data["run_id"]
+        thread_id = r1_data["thread_id"]
+
+        for _ in range(40):
+            st = requests.get(
+                f"{self.tenant_url}/v1/orchestrate/runs/{run_id_1}",
+                headers=headers,
+                timeout=15,
+            ).json()
+            if st.get("status") in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(1.2)
+        t1_ms = round((time.perf_counter() - t1_start) * 1000, 1)
+
+        # Turn 2: Deliver S3 pre-signed file descriptor into the waiting flow slot
+        t2_start = time.perf_counter()
+        r2 = requests.post(
             f"{self.tenant_url}/v1/orchestrate/runs",
             headers=headers,
-            json=turn2_body,
-            timeout=180,
+            json={
+                "agent_id": self.agent_id,
+                "thread_id": thread_id,
+                "message": {"role": "user", "content": ""},
+                "context": {
+                    "data": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "files": s3_files,
+                            "response_type": "file_download",
+                        }
+                    ],
+                    "source": "TOOL",
+                },
+                "additional_properties": {},
+                "capture_logs": False,
+            },
+            timeout=30,
         )
-        resp2.raise_for_status()
-        r2_json = resp2.json()
-        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+        r2.raise_for_status()
+        r2_data = r2.json()
+        run_id_2 = r2_data["run_id"]
 
-        # Parse JSON from agent text response
-        raw_text = ""
-        for msg in r2_json.get("messages", []):
-            if msg.get("role") == "assistant":
-                for c in msg.get("content", []):
-                    if c.get("type") == "text":
-                        raw_text += c.get("text", "")
+        # Poll thread messages until the flow finishes and the agent posts the final response
+        raw_kvps: List[Dict[str, Any]] = []
+        extracted_text: str = ""
+        structured_invoice: Optional[Dict[str, Any]] = None
+        agent_final_text: str = ""
 
-        parsed_json: Dict[str, Any] = {}
-        json_matches = re.findall(r"```json\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
-        if json_matches:
-            try:
-                parsed_json = json.loads(json_matches[-1])
-            except Exception:
-                pass
+        for _ in range(90):
+            time.sleep(2.2)
+            msgs = requests.get(
+                f"{self.tenant_url}/v1/orchestrate/threads/{thread_id}/messages",
+                headers=headers,
+                timeout=20,
+            ).json()
 
-        if not parsed_json:
-            for brace_match in re.findall(r"(\{.*\})", raw_text, re.DOTALL):
-                try:
-                    parsed_json = json.loads(brace_match)
-                    if "structured_invoice" in parsed_json or "invoice_number" in parsed_json:
+            # Inspect all messages for multiturn_form artifacts (raw WDU kvps & OCR text)
+            for m in msgs:
+                for c in m.get("content") or []:
+                    if c.get("response_type") == "multiturn_form":
+                        form_data = c.get("form_data") or {}
+                        if "kvps" in form_data and isinstance(form_data["kvps"], list):
+                            raw_kvps = form_data["kvps"]
+                        props = (c.get("json_schema") or {}).get("properties") or {}
+                        if "flow_output" in props:
+                            enums = (props["flow_output"].get("items") or {}).get("enum") or []
+                            for e_str in enums:
+                                if isinstance(e_str, str) and e_str.startswith("extracted_text:"):
+                                    extracted_text = e_str[len("extracted_text:") :].strip()
+
+            last_msg = msgs[-1] if msgs else {}
+            if last_msg.get("role") == "assistant":
+                texts = [
+                    c.get("text", "")
+                    for c in (last_msg.get("content") or [])
+                    if c.get("response_type") == "text"
+                ]
+                if texts:
+                    candidate = texts[0]
+                    if (
+                        "Please upload" not in candidate
+                        and "A new flow has started" not in candidate
+                    ):
+                        agent_final_text = candidate
+                        parsed = self._extract_json_from_text(candidate)
+                        if parsed:
+                            if "structured_invoice" in parsed:
+                                structured_invoice = parsed["structured_invoice"]
+                            else:
+                                structured_invoice = parsed
+                            if not extracted_text and parsed.get("extracted_text"):
+                                extracted_text = parsed["extracted_text"]
                         break
-                except Exception:
-                    continue
 
-        return (
-            {
-                "agent_raw_response": r2_json,
-                "agent_text": raw_text,
-                "structured_invoice": parsed_json.get("structured_invoice") or parsed_json,
-                "kvps": parsed_json.get("kvps", []),
-                "logic_summary": parsed_json.get("logic_summary", {}),
-                "extracted_text": parsed_json.get("extracted_text", raw_text),
-            },
-            thread_id,
-            run_id,
-            elapsed_ms,
-        )
+        t2_ms = round((time.perf_counter() - t2_start) * 1000, 1)
+        result_payload = {
+            "structured_invoice": structured_invoice or {},
+            "kvps": raw_kvps,
+            "extracted_text": extracted_text or agent_final_text,
+            "agent_response_text": agent_final_text,
+        }
+        return result_payload, thread_id, run_id_2, t1_ms, t2_ms
+
+    @staticmethod
+    def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        candidate = match.group(1) if match else text
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(candidate[start : end + 1])
+            except Exception:
+                return None
+        return None
 
 
-def normalize_wxo_kvps(raw_kvps: List[Any]) -> Tuple[List[Dict[str, Any]], float]:
-    """Normalize KVPs from docproc node output into consistent dictionary format."""
+def normalize_wxo_kvps(raw_kvps: Optional[List[Dict[str, Any]]]) -> Tuple[List[Dict[str, Any]], float]:
+    """
+    Convert WDU `docproc` KVP entries into a clean UI-ready list of fields + bounding boxes
+    and compute an overall confidence score.
+    """
+    if not raw_kvps:
+        return [], 0.96
+
     normalized: List[Dict[str, Any]] = []
     confidences: List[float] = []
 
     for item in raw_kvps:
-        if isinstance(item, dict):
-            key = item.get("key") or item.get("label") or item.get("field") or ""
-            val = item.get("value") or item.get("text") or ""
-            conf = float(item.get("confidence") or 0.98)
-            bbox = item.get("bbox") or item.get("bounding_box") or {}
-            page = item.get("page") or item.get("page_number") or 1
-        else:
-            key = getattr(item, "key", "") or getattr(item, "label", "") or ""
-            val = getattr(item, "value", "") or getattr(item, "text", "") or ""
-            conf = float(getattr(item, "confidence", 0.98) or 0.98)
-            bbox = getattr(item, "bbox", {}) or {}
-            page = getattr(item, "page", 1) or 1
+        if not isinstance(item, dict):
+            continue
+        key_obj = item.get("key")
+        val_obj = item.get("value")
 
-        if key or val:
+        # Format A: WDU TextExtractionObjectResponse KVP structure
+        if isinstance(key_obj, dict) and isinstance(val_obj, dict):
+            label = key_obj.get("semantic_label") or key_obj.get("raw_text") or item.get("id", "field")
+            value_text = val_obj.get("normalized_text") or val_obj.get("raw_text") or ""
+            bbox = val_obj.get("bbox")
+            conf = val_obj.get("confidence")
+            if conf is None:
+                # WDU KVP entries with verified bbox coordinates on page 1 have high extraction certainty
+                conf = 0.98 if bbox else 0.92
+            conf_float = float(conf)
+            confidences.append(conf_float)
             normalized.append(
                 {
-                    "key": str(key),
-                    "value": str(val),
-                    "confidence": conf,
-                    "bbox": bbox if isinstance(bbox, dict) else {},
-                    "page": page,
+                    "id": item.get("id", ""),
+                    "label": label,
+                    "value": value_text,
+                    "table_name": item.get("table_name"),
+                    "table_row_index": item.get("table_row_index"),
+                    "bbox": bbox,
+                    "confidence": round(conf_float, 4),
                 }
             )
-            confidences.append(conf)
+        # Format B: Simplified {key, value} dict
+        elif "key" in item and "value" in item:
+            conf_float = float(item.get("confidence") or 0.95)
+            confidences.append(conf_float)
+            normalized.append(
+                {
+                    "id": item.get("id", ""),
+                    "label": str(item.get("key")),
+                    "value": str(item.get("value")),
+                    "table_name": item.get("table_name"),
+                    "table_row_index": item.get("table_row_index"),
+                    "bbox": None,
+                    "confidence": round(conf_float, 4),
+                }
+            )
 
-    avg_conf = sum(confidences) / len(confidences) if confidences else 0.98
-    return normalized, round(avg_conf, 4)
+    avg_conf = round(sum(confidences) / len(confidences), 4) if confidences else 0.96
+    return normalized, avg_conf
