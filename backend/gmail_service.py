@@ -82,7 +82,8 @@ class GmailService:
                 return []
 
             msg_ids = data[0].split()
-            for mid in msg_ids[-10:]:  # Inspect up to 10 most recent unread messages
+            # Inspect up to 5 most recent unread messages (newest first)
+            for mid in reversed(msg_ids[-5:]):
                 mid_str = mid.decode()
                 if mid_str in self._processed_msg_ids:
                     continue

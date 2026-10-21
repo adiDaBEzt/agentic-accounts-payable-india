@@ -478,8 +478,13 @@ if (checkGmailBtn) {
     checkGmailBtn.textContent = "Scanning aditya.krishnan2829@gmail.com inbox...";
     try {
       const res = await fetch("/api/gmail/check-inbox", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Gmail check failed");
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        throw new Error(`Server returned status ${res.status} (${res.statusText})`);
+      }
+      if (!res.ok) throw new Error(data?.detail || `Error: ${res.statusText}`);
       if (data.processed_count === 0) {
         alert("No new unread invoice emails found in INBOX. Send an email with an invoice attachment (PDF/PNG) to aditya.krishnan2829@gmail.com and try again!");
       } else {

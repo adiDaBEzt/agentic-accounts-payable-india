@@ -12,7 +12,7 @@ Serves:
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
