@@ -8,3 +8,4 @@ demo_invoices.db
 *.zip
 .env
 **/.env
+.vscode/
