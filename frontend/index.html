@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBM watsonx Orchestrate — Invoice IDP Pipeline</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-badge">wxO</div>
+      <div>
+        <h1>IBM watsonx Orchestrate — Invoice IDP Pipeline</h1>
+        <p class="subtitle">
+          Custom Frontend &rarr; Built-in S3/COS Bucket (<code>/v1/orchestrate/upload-to-s3</code>) &rarr; Agentic Flow (<code>docproc</code> + GenAI Structurer) &rarr; SQLite Database
+        </p>
+      </div>
+    </div>
+    <div class="topbar-status" id="tenantStatusPill">
+      <span class="status-dot"></span>
+      <span id="tenantStatusText">Connecting to ca-tor tenant...</span>
+    </div>
+  </header>
+
+  <main class="workspace-grid">
+    <!-- LEFT COLUMN: Upload, Execution Mode, Sample Invoices & Live Pipeline Telemetry -->
+    <section class="panel panel-left">
+      <div class="panel-header">
+        <h2>1. Document Ingestion &amp; Flow Trigger</h2>
+        <span class="badge-tag">No Embedded Chat UI</span>
+      </div>
+
+      <!-- Execution Mode Selector -->
+      <div class="field-group">
+        <label class="group-label">watsonx Orchestrate Invocation Architecture</label>
+        <div class="mode-cards">
+          <label class="mode-card active" id="modeCardDirect">
+            <input type="radio" name="execution_mode" value="direct_flow" checked />
+            <div class="mode-card-title">Direct Headless Flow API</div>
+            <div class="mode-card-desc">
+              <code>POST /v1/orchestrate/upload-to-s3</code> &rarr; <code>POST /v1/orchestrate/flows/{flow_id}/run</code>
+            </div>
+          </label>
+          <label class="mode-card" id="modeCardAgent">
+            <input type="radio" name="execution_mode" value="agent_two_turn" />
+            <div class="mode-card-title">Conversational Agent (2-Turn File Slot)</div>
+            <div class="mode-card-desc">
+              <code>POST /v1/orchestrate/runs</code> (`file_upload` slot &rarr; `file_download` S3 context)
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Drag and Drop Upload Zone -->
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload invoice image or PDF">
+        <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.pdf,.tiff" hidden />
+        <div class="dropzone-icon">&#128196;</div>
+        <p class="dropzone-title" id="dropzoneTitle">Drag &amp; drop an Invoice (PNG, JPG, PDF) or click to browse</p>
+        <p class="dropzone-hint" id="dropzoneHint">Binary files are uploaded directly to watsonx Orchestrate S3/COS before triggering <code>docproc</code></p>
+      </div>
+
+      <!-- Built-in Sample Invoices -->
+      <div class="samples-box">
+        <div class="samples-header">
+          <span>Or select a pre-generated sample invoice for instant demo:</span>
+        </div>
+        <div class="sample-buttons" id="sampleButtonsContainer">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Primary Action Button -->
+      <button type="button" class="btn-primary" id="runPipelineBtn">
+        <span id="runBtnLabel">Upload to wxO S3 &amp; Run IDP Flow</span>
+      </button>
+
+      <!-- Live Step-by-Step Pipeline Telemetry -->
+      <div class="telemetry-card">
+        <div class="telemetry-header">
+          <h3>Live Pipeline Execution Telemetry</h3>
+          <span id="telemetryElapsed" class="mono-badge">Idle</span>
+        </div>
+        <ol class="telemetry-steps" id="telemetrySteps">
+          <li class="step-item pending" data-step="1">
+            <div class="step-index">1</div>
+            <div class="step-body">
+              <div class="step-title">IBM Cloud IAM Token Exchange</div>
+              <div class="step-meta"><code>POST https://iam.cloud.ibm.com/identity/token</code></div>
+            </div>
+          </li>
+          <li class="step-item pending" data-step="2">
+            <div class="step-index">2</div>
+            <div class="step-body">
+              <div class="step-title">watsonx Orchestrate S3/COS Bucket Upload</div>
+              <div class="step-meta"><code>POST /v1/orchestrate/upload-to-s3</code></div>
+            </div>
+          </li>
+          <li class="step-item pending" data-step="3">
+            <div class="step-index">3</div>
+            <div class="step-body">
+              <div class="step-title">IDP Agentic Flow (<code>docproc</code> + Logic block + GenAI Prompt)</div>
+              <div class="step-meta">WDU Multi-Schema OCR + Python Math Routing + Corporate Controller Audit</div>
+            </div>
+          </li>
+          <li class="step-item pending" data-step="4">
+            <div class="step-index">4</div>
+            <div class="step-body">
+              <div class="step-title">Downstream SQLite Database Commit</div>
+              <div class="step-meta"><code>INSERT INTO invoices &amp; invoice_line_items</code></div>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: Extracted Invoice Inspector + Downstream SQLite Database Table -->
+    <section class="panel panel-right">
+      <!-- Active Invoice Extraction Result Card -->
+      <div class="result-card" id="activeResultCard">
+        <div class="panel-header">
+          <div>
+            <h2>2. Extracted Invoice &amp; WDU <code>docproc</code> Output</h2>
+            <p class="panel-subtext" id="activeInvoiceSubtitle">Run the pipeline or click any row in the SQLite table below to inspect extracted fields.</p>
+          </div>
+          <div class="header-actions">
+            <span class="confidence-pill" id="activeConfidenceBadge" hidden>98.0% Confidence</span>
+            <button type="button" class="btn-secondary" id="openInspectorModalBtn" disabled>
+              Inspect Raw WDU KVPs &amp; OCR
+            </button>
+          </div>
+        </div>
+
+        <div id="emptyStateBox" class="empty-state">
+          <p>No invoice selected yet. Choose a sample invoice on the left and click <strong>Upload to wxO S3 &amp; Run IDP Flow</strong>.</p>
+        </div>
+
+        <div id="invoiceDetailsContainer" hidden>
+          <!-- Structured Header Fields Grid -->
+          <div class="kvp-grid" id="structuredHeaderGrid"></div>
+
+          <!-- Validation Banner -->
+          <div class="validation-banner" id="validationBanner"></div>
+
+          <!-- Extracted Line Items Table -->
+          <div class="subtable-section">
+            <h3>Extracted Line Items Table (<code>DocProcTable: line_items</code>)</h3>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Unit Price</th>
+                    <th>Line Amount</th>
+                    <th>GL Category</th>
+                    <th>WDU Confidence</th>
+                  </tr>
+                </thead>
+                <tbody id="lineItemsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Downstream SQLite Database Table -->
+      <div class="db-card">
+        <div class="panel-header">
+          <div>
+            <h2>3. Downstream SQLite Database (<code>invoices.db</code>)</h2>
+            <p class="panel-subtext">Persisted invoices ready for ERP / Salesforce synchronization</p>
+          </div>
+          <span class="badge-count" id="dbRecordCount">0 records</span>
+        </div>
+
+        <div class="table-scroll">
+          <table class="data-table" id="sqliteInvoicesTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Invoice #</th>
+                <th>Vendor</th>
+                <th>Buyer</th>
+                <th>Date</th>
+                <th>PO #</th>
+                <th>Total</th>
+                <th>Mode</th>
+                <th>Approval Tier</th>
+                <th>Confidence</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sqliteInvoicesTbody">
+              <tr>
+                <td colspan="10" class="empty-cell">No invoices stored in SQLite yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Native HTML <dialog closedby="any"> Modal for Raw WDU KVP Bounding Boxes, S3 Metadata & OCR Text -->
+  <dialog id="rawInspectorDialog" closedby="any" aria-labelledby="dialogTitle">
+    <div class="dialog-inner">
+      <div class="dialog-header">
+        <div>
+          <h2 id="dialogTitle">watsonx Document Understanding (<code>docproc</code>) Deep Inspector</h2>
+          <p class="dialog-subtitle" id="dialogSubtitle">Raw KVP semantic labels, page bounding boxes, S3 pre-signed URL, and OCR Markdown</p>
+        </div>
+        <form method="dialog">
+          <button type="submit" class="btn-close" aria-label="Close modal">&times;</button>
+        </form>
+      </div>
+
+      <div class="dialog-body">
+        <div class="s3-meta-box">
+          <div class="meta-row">
+            <strong>S3/COS Object URL:</strong>
+            <code id="dialogS3Url" class="code-wrap"></code>
+          </div>
+          <div class="meta-row">
+            <strong>Flow ID:</strong> <code id="dialogFlowId"></code>
+            &nbsp;|&nbsp;
+            <strong>Agent ID:</strong> <code id="dialogAgentId"></code>
+            &nbsp;|&nbsp;
+            <strong>Thread ID:</strong> <code id="dialogThreadId"></code>
+          </div>
+        </div>
+
+        <div class="dialog-columns">
+          <div>
+            <h3>Raw WDU <code>docproc</code> KVP &amp; Bounding Box Nodes</h3>
+            <div class="table-scroll dialog-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Node ID</th>
+                    <th>Semantic Label</th>
+                    <th>Extracted Value</th>
+                    <th>Page BBox (x, y, w, h)</th>
+                  </tr>
+                </thead>
+                <tbody id="dialogRawKvpsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3>Extracted OCR Markdown (<code>flow["invoice_docproc_node"].output.text</code>)</h3>
+            <pre class="ocr-pre" id="dialogOcrText"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <form method="dialog">
+          <button type="submit" class="btn-secondary">Close Inspector (Esc or Click Outside)</button>
+        </form>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
