@@ -273,7 +273,18 @@ function renderResult(data) {
   state.currentKvps = data.kvps || [];
 
   // Badges
-  docTypeBadge.textContent = doc.document_type || "Invoice";
+  const docType = doc.document_type || "Invoice";
+  docTypeBadge.textContent = docType;
+  if (docType.includes("Purchase") || docType.includes("PO")) {
+    docTypeBadge.style.background = "#007d79";
+    docTypeBadge.style.color = "#ffffff";
+  } else if (docType.includes("Receipt")) {
+    docTypeBadge.style.background = "#8a3ffc";
+    docTypeBadge.style.color = "#ffffff";
+  } else {
+    docTypeBadge.style.background = "#0f62fe";
+    docTypeBadge.style.color = "#ffffff";
+  }
   approvalTierBadge.textContent = doc.approval_tier || "AUTO_APPROVED";
 
   if (doc.approval_tier === "AUTO_APPROVED") {

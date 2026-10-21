@@ -150,11 +150,17 @@ def save_invoice_record(
         or structured_invoice.get("validation_notes")
         or ""
     )
-    doc_type = (
-        logic_dict.get("detected_document_type")
-        or structured_invoice.get("document_type")
-        or "Invoice"
-    )
+    ocr_upper = (extracted_text or "").upper()
+    if "PURCHASE ORDER" in ocr_upper or "PO NUMBER" in ocr_upper or file_name.lower().startswith("po_") or "PURCHASEORDER" in (structured_invoice.get("document_type") or "").upper():
+        doc_type = "Purchase Order"
+    elif "PAYMENT RECEIPT" in ocr_upper or "RECEIPT NUMBER" in ocr_upper or "TOTAL PAID" in ocr_upper or file_name.lower().startswith("receipt_") or "RECEIPT" in (structured_invoice.get("document_type") or "").upper():
+        doc_type = "Receipt"
+    elif logic_dict.get("detected_document_type") and logic_dict.get("detected_document_type") != "Invoice":
+        doc_type = logic_dict.get("detected_document_type")
+    elif structured_invoice.get("document_type") and structured_invoice.get("document_type") not in ("", "Invoice"):
+        doc_type = structured_invoice.get("document_type")
+    else:
+        doc_type = "Invoice"
 
     # Build a lookup of line item confidence from raw kvps if available
     line_item_confidences: List[float] = []

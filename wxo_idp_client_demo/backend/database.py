@@ -80,16 +80,25 @@ def save_document_record(
     avg_confidence: float = 0.0,
     logic_summary: Optional[Dict[str, Any]] = None,
     telemetry: Optional[List[Dict[str, Any]]] = None,
+    document_type_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     created_at = datetime.now(timezone.utc).isoformat()
     kvps_list = kvps or []
     logic_summary = logic_summary or {}
 
-    doc_type = (
-        structured_doc.get("document_type")
-        or logic_summary.get("detected_document_type")
-        or "Invoice"
-    )
+    ocr_upper = (extracted_text or "").upper()
+    if document_type_override:
+        doc_type = document_type_override
+    elif "PURCHASE ORDER" in ocr_upper or "PO NUMBER" in ocr_upper or file_name.lower().startswith("po_") or "PURCHASEORDER" in (structured_doc.get("document_type") or "").upper():
+        doc_type = "Purchase Order"
+    elif "PAYMENT RECEIPT" in ocr_upper or "RECEIPT NUMBER" in ocr_upper or "TOTAL PAID" in ocr_upper or file_name.lower().startswith("receipt_") or "RECEIPT" in (structured_doc.get("document_type") or "").upper():
+        doc_type = "Receipt"
+    elif structured_doc.get("document_type") and structured_doc.get("document_type") not in ("", "Invoice"):
+        doc_type = structured_doc.get("document_type")
+    elif logic_summary.get("detected_document_type") and logic_summary.get("detected_document_type") != "Invoice":
+        doc_type = logic_summary.get("detected_document_type")
+    else:
+        doc_type = "Invoice"
     inv_number = (
         structured_doc.get("invoice_number")
         or logic_summary.get("invoice_number")
