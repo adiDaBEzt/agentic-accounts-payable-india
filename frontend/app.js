@@ -290,6 +290,7 @@ function setActiveInvoice(inv) {
     { label: "Document Type", value: inv.document_type || "Invoice", highlight: true },
     { label: "Invoice / Ref Number", value: inv.invoice_number, highlight: true },
     { label: "Approval Tier", value: inv.approval_tier || "AUTO_APPROVED", highlight: true },
+    { label: "Odoo ERP Status", value: inv.odoo_bill_id ? `Bill #${inv.odoo_bill_id} (Synced)` : "Pending Sync", highlight: true },
     { label: "Vendor / Merchant", value: inv.vendor_name, highlight: true },
     { label: "Buyer (Bill To)", value: inv.buyer_name },
     { label: "Doc Date", value: inv.invoice_date },
@@ -353,25 +354,26 @@ function renderSqliteTable() {
   sqliteInvoicesTbody.innerHTML = state.invoices
     .map((inv) => {
       const isSelected = state.activeInvoice && state.activeInvoice.id === inv.id;
-      const modeBadge =
-        inv.execution_mode === "agent_two_turn" ? "Agent 2-Turn" : "Direct Flow";
       const tierBadge =
         inv.approval_tier === "VP_APPROVAL_REQUIRED"
           ? `<span style="color:#b28600;font-weight:600;">VP Review</span>`
           : inv.approval_tier === "FLAGGED_MATH_MISMATCH"
           ? `<span style="color:#da1e28;font-weight:600;">Mismatch</span>`
           : `<span style="color:#198038;font-weight:600;">Auto-OK</span>`;
+
+      const odooBadge = inv.odoo_bill_id
+        ? `<a href="${escapeHtml(inv.odoo_url || 'https://invoiceprocessing.odoo.com')}" target="_blank" rel="noopener" class="badge-tag" style="background:#e0f2fe;color:#0369a1;text-decoration:none;" onclick="event.stopPropagation()">Bill #${inv.odoo_bill_id}</a>`
+        : `<button type="button" class="btn-mini sync-odoo-btn" data-id="${inv.id}" onclick="event.stopPropagation()">Sync Odoo</button>`;
+
       return `
         <tr class="clickable-row ${isSelected ? "selected-row" : ""}" data-id="${inv.id}">
           <td>#${inv.id}</td>
+          <td><span class="badge-tag">${escapeHtml(inv.document_type || "Invoice")}</span></td>
           <td><strong>${escapeHtml(inv.invoice_number || "N/A")}</strong></td>
           <td>${escapeHtml(inv.vendor_name || "—")}</td>
-          <td>${escapeHtml(inv.buyer_name || "—")}</td>
-          <td>${escapeHtml(inv.invoice_date || "—")}</td>
-          <td><code>${escapeHtml(inv.po_number || "—")}</code></td>
           <td><strong>${escapeHtml(inv.currency)} ${Number(inv.total_amount).toFixed(2)}</strong></td>
-          <td><code>${modeBadge}</code></td>
           <td>${tierBadge}</td>
+          <td>${odooBadge}</td>
           <td>${((Number(inv.avg_confidence) || 0.98) * 100).toFixed(0)}%</td>
           <td>
             <button type="button" class="btn-mini delete-row-btn" data-id="${inv.id}">Delete</button>
@@ -380,6 +382,30 @@ function renderSqliteTable() {
       `;
     })
     .join("");
+
+  sqliteInvoicesTbody.querySelectorAll(".sync-odoo-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.id);
+      btn.textContent = "Syncing...";
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/invoices/${id}/sync-odoo`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Sync failed");
+        alert(`Successfully created Odoo Vendor Bill #${data.bill.id}!`);
+        const listRes = await fetch("/api/invoices");
+        if (listRes.ok) {
+          state.invoices = (await listRes.json()).invoices;
+          renderSqliteTable();
+        }
+      } catch (err) {
+        alert(`Odoo error: ${err.message}`);
+        btn.textContent = "Sync Odoo";
+        btn.disabled = false;
+      }
+    });
+  });
 
   sqliteInvoicesTbody.querySelectorAll("tr.clickable-row").forEach((tr) => {
     tr.addEventListener("click", (e) => {
@@ -443,6 +469,35 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+const checkGmailBtn = document.getElementById("checkGmailBtn");
+if (checkGmailBtn) {
+  checkGmailBtn.addEventListener("click", async () => {
+    checkGmailBtn.disabled = true;
+    checkGmailBtn.textContent = "Scanning aditya.krishnan2829@gmail.com inbox...";
+    try {
+      const res = await fetch("/api/gmail/check-inbox", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Gmail check failed");
+      if (data.processed_count === 0) {
+        alert("No new unread invoice emails found in INBOX. Send an email with an invoice attachment (PDF/PNG) to aditya.krishnan2829@gmail.com and try again!");
+      } else {
+        alert(`Successfully ingested and processed ${data.processed_count} invoice email(s) and synced to Odoo ERP!`);
+        const listRes = await fetch("/api/invoices");
+        if (listRes.ok) {
+          state.invoices = (await listRes.json()).invoices;
+          renderSqliteTable();
+          if (state.invoices.length > 0) setActiveInvoice(state.invoices[0]);
+        }
+      }
+    } catch (err) {
+      alert(`Gmail check error: ${err.message}`);
+    } finally {
+      checkGmailBtn.disabled = false;
+      checkGmailBtn.textContent = "Scan Gmail Inbox for Invoices";
+    }
+  });
 }
 
 initApp();

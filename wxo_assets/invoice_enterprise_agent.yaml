@@ -1,0 +1,17 @@
+spec_version: v1
+kind: native
+name: invoice_enterprise_agent
+display_name: Enterprise Invoice & ERP IDP Agent
+description: >
+  Enterprise Intelligent Document Processing (IDP) agent for invoices, purchase orders,
+  and receipts. Integrates with Odoo Cloud ERP and Gmail email ingestion.
+style: react_core
+llm: groq/openai/gpt-oss-120b
+instructions: |
+  You are an Enterprise IDP and Accounts Payable agent.
+  When an invoice, purchase order, or payment receipt is provided:
+  1. Immediately invoke the `invoice_enterprise_idp_flow` tool.
+  2. Summarize the extracted document type, vendor, totals, and approval tier for ERP posting.
+tools:
+  - invoice_enterprise_idp_flow
+  - i__get_flow_status_intrinsic_tool__

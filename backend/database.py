@@ -47,6 +47,9 @@ def init_db() -> None:
                 approval_tier TEXT NOT NULL DEFAULT 'AUTO_APPROVED',
                 math_summary TEXT NOT NULL DEFAULT '',
                 execution_mode TEXT NOT NULL DEFAULT 'direct_flow',
+                source_channel TEXT NOT NULL DEFAULT 'web_upload',
+                odoo_bill_id INTEGER DEFAULT NULL,
+                odoo_url TEXT NOT NULL DEFAULT '',
                 file_name TEXT NOT NULL DEFAULT '',
                 s3_url TEXT NOT NULL DEFAULT '',
                 wxo_thread_id TEXT NOT NULL DEFAULT '',
@@ -80,6 +83,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE invoices ADD COLUMN approval_tier TEXT NOT NULL DEFAULT 'AUTO_APPROVED'")
         if "math_summary" not in cols:
             conn.execute("ALTER TABLE invoices ADD COLUMN math_summary TEXT NOT NULL DEFAULT ''")
+        if "source_channel" not in cols:
+            conn.execute("ALTER TABLE invoices ADD COLUMN source_channel TEXT NOT NULL DEFAULT 'web_upload'")
+        if "odoo_bill_id" not in cols:
+            conn.execute("ALTER TABLE invoices ADD COLUMN odoo_bill_id INTEGER DEFAULT NULL")
+        if "odoo_url" not in cols:
+            conn.execute("ALTER TABLE invoices ADD COLUMN odoo_url TEXT NOT NULL DEFAULT ''")
 
         cursor_items = conn.execute("PRAGMA table_info(invoice_line_items)")
         item_cols = [r["name"] for r in cursor_items.fetchall()]
@@ -120,6 +129,9 @@ def save_invoice_record(
     avg_confidence: float = 0.0,
     logic_summary: Optional[Dict[str, Any]] = None,
     telemetry: Optional[List[Dict[str, Any]]] = None,
+    source_channel: str = "web_upload",
+    odoo_bill_id: Optional[int] = None,
+    odoo_url: str = "",
 ) -> Dict[str, Any]:
     created_at = datetime.now(timezone.utc).isoformat()
     kvps_list = kvps or []
@@ -169,9 +181,10 @@ def save_invoice_record(
                 po_number, payment_terms, currency,
                 subtotal_amount, tax_amount, total_amount,
                 avg_confidence, validation_notes, approval_tier, math_summary,
-                execution_mode, file_name, s3_url, wxo_thread_id, wxo_run_id,
+                execution_mode, source_channel, odoo_bill_id, odoo_url,
+                file_name, s3_url, wxo_thread_id, wxo_run_id,
                 extracted_text, raw_kvps_json, telemetry_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 doc_type,
@@ -193,6 +206,9 @@ def save_invoice_record(
                 approval_tier,
                 math_summary,
                 execution_mode,
+                source_channel,
+                odoo_bill_id,
+                odoo_url,
                 file_name,
                 s3_url,
                 wxo_thread_id,
@@ -267,6 +283,15 @@ def list_invoices(limit: int = 50) -> List[Dict[str, Any]]:
             inv["line_items"] = [dict(it) for it in items]
             results.append(inv)
         return results
+
+
+def update_invoice_odoo_status(invoice_id: int, odoo_bill_id: int, odoo_url: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE invoices SET odoo_bill_id = ?, odoo_url = ? WHERE id = ?",
+            (odoo_bill_id, odoo_url, invoice_id),
+        )
+        conn.commit()
 
 
 def delete_invoice_by_id(invoice_id: int) -> bool:

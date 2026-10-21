@@ -63,11 +63,25 @@
       <!-- Built-in Sample Invoices -->
       <div class="samples-box">
         <div class="samples-header">
-          <span>Or select a pre-generated sample invoice for instant demo:</span>
+          <span>Or select a pre-generated sample document for instant demo:</span>
         </div>
         <div class="sample-buttons" id="sampleButtonsContainer">
           <!-- Populated dynamically -->
         </div>
+      </div>
+
+      <!-- Gmail Inbox Ingestion Card -->
+      <div class="samples-box" style="margin-top: 10px; border-color: #93c5fd; background: #f0f7ff;">
+        <div class="samples-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <strong style="color: #0f62fe;">📧 Gmail Inbox Auto-Ingestion</strong>
+          <span class="badge-tag" id="gmailStatusTag">aditya.krishnan2829@gmail.com</span>
+        </div>
+        <p style="font-size: 0.78rem; color: #475569; margin: 4px 0 8px;">
+          Send an email with an invoice attachment (PDF/PNG) to <code>aditya.krishnan2829@gmail.com</code> and click below to ingest and auto-post to Odoo!
+        </p>
+        <button type="button" class="btn-secondary" id="checkGmailBtn" style="width: 100%; text-align: center;">
+          Scan Gmail Inbox for Invoices
+        </button>
       </div>
 
       <!-- Primary Action Button -->
@@ -108,6 +122,13 @@
             <div class="step-body">
               <div class="step-title">Downstream SQLite Database Commit</div>
               <div class="step-meta"><code>INSERT INTO invoices &amp; invoice_line_items</code></div>
+            </div>
+          </li>
+          <li class="step-item pending" data-step="5">
+            <div class="step-index">5</div>
+            <div class="step-body">
+              <div class="step-title">Odoo Cloud ERP Posting</div>
+              <div class="step-meta">XML-RPC <code>account.move.create (Vendor Bill)</code></div>
             </div>
           </li>
         </ol>
@@ -169,8 +190,8 @@
       <div class="db-card">
         <div class="panel-header">
           <div>
-            <h2>3. Downstream SQLite Database (<code>invoices.db</code>)</h2>
-            <p class="panel-subtext">Persisted invoices ready for ERP / Salesforce synchronization</p>
+            <h2>3. Downstream SQLite Database &amp; Odoo Cloud ERP Status</h2>
+            <p class="panel-subtext">Persisted documents synced with Odoo Cloud ERP (<a href="https://invoiceprocessing.odoo.com" target="_blank" rel="noopener">invoiceprocessing.odoo.com</a>)</p>
           </div>
           <span class="badge-count" id="dbRecordCount">0 records</span>
         </div>
@@ -180,14 +201,12 @@
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Invoice #</th>
-                <th>Vendor</th>
-                <th>Buyer</th>
-                <th>Date</th>
-                <th>PO #</th>
+                <th>Type</th>
+                <th>Reference #</th>
+                <th>Vendor / Merchant</th>
                 <th>Total</th>
-                <th>Mode</th>
                 <th>Approval Tier</th>
+                <th>Odoo Bill</th>
                 <th>Confidence</th>
                 <th>Actions</th>
               </tr>
