@@ -276,7 +276,7 @@ function renderCfoAnalytics(analytics) {
       (g) => `
       <span class="gl-legend-item">
         <span class="gl-dot" style="background:${g.color};"></span>
-        <strong>${escapeHtml(g.category)}</strong>: ${fmtUsd.format(g.amount_usd)} (${g.pct}%)
+        <span><strong>${escapeHtml(g.category)}:</strong> ${fmtUsd.format(g.amount_usd)} (${g.pct}%)</span>
       </span>
     `
     )
@@ -468,14 +468,14 @@ function setActiveInvoice(inv) {
     { label: "Subtotal", value: `${inv.currency} ${Number(inv.subtotal_amount).toFixed(2)}`, kvpKey: "subtotal_amount" },
     { label: "Tax Amount", value: `${inv.currency} ${Number(inv.tax_amount).toFixed(2)}`, kvpKey: "tax_amount" },
     { label: "Total Amount Due", value: `${inv.currency} ${Number(inv.total_amount).toFixed(2)}`, kvpKey: "total_amount", highlight: true },
-    { label: "Vendor Address", value: inv.vendor_address, kvpKey: "vendor_address" },
-    { label: "Buyer Address", value: inv.buyer_address, kvpKey: "buyer_address" },
+    { label: "Vendor Address", value: inv.vendor_address, kvpKey: "vendor_address", wide: true },
+    { label: "Buyer Address", value: inv.buyer_address, kvpKey: "buyer_address", wide: true },
   ];
 
   structuredHeaderGrid.innerHTML = headerFields
     .map(
       (f) => `
-      <div class="kvp-tile bbox-linked ${f.highlight ? "highlight" : ""}" data-kvp-key="${f.kvpKey}">
+      <div class="kvp-tile bbox-linked ${f.highlight ? "highlight" : ""} ${f.wide ? "kvp-tile-wide" : ""}" data-kvp-key="${f.kvpKey}">
         <div class="kvp-tile-label">${escapeHtml(f.label)}</div>
         <div class="kvp-tile-value">${escapeHtml(f.value || "—")}</div>
       </div>
@@ -525,6 +525,12 @@ function renderInteractiveBoundingBoxes(inv) {
   const previewUrl =
     inv.preview_image_url ||
     (inv.file_name ? `/samples/${inv.file_name.replace(/\.pdf$/i, ".png")}` : "/samples/invoice_acme_cloud_0042.png");
+  const viewport = document.getElementById("docCanvasViewport");
+  viewport.classList.remove("no-preview");
+  docPreviewImg.onerror = () => {
+    viewport.classList.add("no-preview");
+    docBboxSvg.innerHTML = "";
+  };
   docPreviewImg.src = previewUrl;
 
   const kvps = inv.raw_kvps || [];
@@ -906,7 +912,7 @@ function renderSqliteTable() {
         <tr class="clickable-row ${isSelected ? "selected-row" : ""}" data-id="${inv.id}">
           <td>#${inv.id}</td>
           <td><span class="badge-tag">${escapeHtml(inv.document_type || "Invoice")}</span></td>
-          <td><strong>${escapeHtml(inv.invoice_number || "N/A")}</strong></td>
+          <td data-type="${escapeHtml(inv.document_type || "Invoice")}"><strong>${escapeHtml(inv.invoice_number || "N/A")}</strong></td>
           <td>${escapeHtml(inv.vendor_name || "—")}</td>
           <td><strong>${escapeHtml(inv.currency)} ${Number(inv.total_amount).toFixed(2)}</strong></td>
           <td>${poBadge}</td>
@@ -914,7 +920,7 @@ function renderSqliteTable() {
           <td>${tierBadge}</td>
           <td>${odooBadge}</td>
           <td>
-            <button type="button" class="btn-mini delete-row-btn" data-id="${inv.id}">Delete</button>
+            <button type="button" class="btn-mini delete-row-btn" data-id="${inv.id}">✕</button>
           </td>
         </tr>
       `;
@@ -1033,6 +1039,205 @@ if (checkGmailBtn) {
       checkGmailBtn.disabled = false;
       checkGmailBtn.textContent = "Scan Gmail Inbox for Invoices";
     }
+  });
+}
+
+// ============================================================================
+// WATSONX AP & ODOO COPILOT CONVERSATIONAL DRAWER CONTROLLER
+// ============================================================================
+const copilotDrawer = document.getElementById("copilotDrawer");
+const topbarCopilotBtn = document.getElementById("topbarCopilotBtn");
+const floatingCopilotBtn = document.getElementById("floatingCopilotBtn");
+const closeCopilotDrawerBtn = document.getElementById("closeCopilotDrawerBtn");
+
+const tabInternalCopilotBtn = document.getElementById("tabInternalCopilotBtn");
+const tabWxOEmbedBtn = document.getElementById("tabWxOEmbedBtn");
+const copilotInternalBody = document.getElementById("copilotInternalBody");
+const copilotWxOEmbedBody = document.getElementById("copilotWxOEmbedBody");
+
+const copilotMessages = document.getElementById("copilotMessages");
+const copilotInputForm = document.getElementById("copilotInputForm");
+const copilotInputText = document.getElementById("copilotInputText");
+const launchNativeWebchatBtn = document.getElementById("launchNativeWebchatBtn");
+
+function openCopilotDrawer() {
+  if (copilotDrawer) {
+    copilotDrawer.classList.add("open");
+    if (copilotInputText) copilotInputText.focus();
+  }
+}
+
+function closeCopilotDrawer() {
+  if (copilotDrawer) copilotDrawer.classList.remove("open");
+}
+
+if (topbarCopilotBtn) topbarCopilotBtn.addEventListener("click", openCopilotDrawer);
+if (floatingCopilotBtn) floatingCopilotBtn.addEventListener("click", openCopilotDrawer);
+if (closeCopilotDrawerBtn) closeCopilotDrawerBtn.addEventListener("click", closeCopilotDrawer);
+
+// Tab switching inside drawer
+if (tabInternalCopilotBtn && tabWxOEmbedBtn) {
+  tabInternalCopilotBtn.addEventListener("click", () => {
+    tabInternalCopilotBtn.classList.add("active");
+    tabWxOEmbedBtn.classList.remove("active");
+    if (copilotInternalBody) copilotInternalBody.hidden = false;
+    if (copilotWxOEmbedBody) copilotWxOEmbedBody.hidden = true;
+  });
+
+  tabWxOEmbedBtn.addEventListener("click", () => {
+    tabWxOEmbedBtn.classList.add("active");
+    tabInternalCopilotBtn.classList.remove("active");
+    if (copilotInternalBody) copilotInternalBody.hidden = true;
+    if (copilotWxOEmbedBody) copilotWxOEmbedBody.hidden = false;
+  });
+}
+
+// Quick Prompt Chips
+document.querySelectorAll(".quick-chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    const query = chip.dataset.query;
+    if (query && copilotInputText) {
+      copilotInputText.value = query;
+      sendCopilotMessage(query);
+    }
+  });
+});
+
+// Markdown Formatter for Assistant Responses
+function renderMarkdown(md) {
+  if (!md) return "";
+  let html = escapeHtml(md);
+
+  // Restore line breaks
+  html = html.replace(/\r\n/g, "\n");
+
+  // Markdown tables
+  html = html.replace(
+    /(?:^|\n)(\|.+?\|\n\|[-:| ]+?\|\n(?:\|.+?\|\n?)+)/g,
+    (match) => {
+      const lines = match.trim().split("\n");
+      const headers = lines[0]
+        .split("|")
+        .slice(1, -1)
+        .map((h) => `<th>${h.trim()}</th>`)
+        .join("");
+      const rows = lines
+        .slice(2)
+        .map((r) => {
+          const cells = r
+            .split("|")
+            .slice(1, -1)
+            .map((c) => `<td>${c.trim()}</td>`)
+            .join("");
+          return `<tr>${cells}</tr>`;
+        })
+        .join("");
+      return `<div class="table-scroll"><table class="data-table"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+  );
+
+  // Headers (### Header)
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin: 8px 0 4px; font-size: 0.92rem; font-weight: 700;">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 style="margin: 10px 0 5px; font-size: 0.98rem; font-weight: 700;">$1</h3>');
+
+  // Bold (**text**)
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+  // Italic (*text*)
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  // Inline Code (`code`)
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Links ([text](url))
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Unordered list items (- item)
+  html = html.replace(/(?:^|\n)- (.+)/g, '<div style="margin: 2px 0 2px 10px;">&bull; $1</div>');
+
+  // Double linebreaks to paragraph spacing
+  html = html.replace(/\n\n+/g, "<br><br>");
+  html = html.replace(/\n/g, "<br>");
+
+  return html;
+}
+
+// Chat Send Message
+async function sendCopilotMessage(userText) {
+  const text = (userText || (copilotInputText ? copilotInputText.value : "") || "").trim();
+  if (!text || !copilotMessages) return;
+
+  // Add User Message
+  const userMsgEl = document.createElement("div");
+  userMsgEl.className = "copilot-msg msg-user";
+  userMsgEl.innerHTML = `<div class="msg-bubble">${escapeHtml(text)}</div>`;
+  copilotMessages.appendChild(userMsgEl);
+  if (copilotInputText) copilotInputText.value = "";
+  copilotMessages.scrollTop = copilotMessages.scrollHeight;
+
+  // Add Loading Bubble
+  const loadingEl = document.createElement("div");
+  loadingEl.className = "copilot-msg msg-assistant";
+  loadingEl.innerHTML = `<div class="msg-bubble" style="color: #64748b;"><em>Thinking &amp; querying watsonx / Odoo...</em></div>`;
+  copilotMessages.appendChild(loadingEl);
+  copilotMessages.scrollTop = copilotMessages.scrollHeight;
+
+  try {
+    const res = await fetch("/api/chat/assistant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Assistant request failed");
+
+    loadingEl.innerHTML = `<div class="msg-bubble">${renderMarkdown(data.reply || "No response received.")}</div>`;
+
+    // If an action was taken (e.g. Odoo bill posted), refresh the background list
+    if (data.action_taken === "odoo_post") {
+      await refreshInvoicesList();
+    }
+  } catch (err) {
+    loadingEl.innerHTML = `<div class="msg-bubble" style="color: #b91c1c;">Error: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    copilotMessages.scrollTop = copilotMessages.scrollHeight;
+  }
+}
+
+if (copilotInputForm) {
+  copilotInputForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendCopilotMessage();
+  });
+}
+
+// Native watsonx Orchestrate Embed Launcher
+if (launchNativeWebchatBtn) {
+  launchNativeWebchatBtn.addEventListener("click", () => {
+    window.wxOConfiguration = {
+      orchestrationID: "a7ba2c6162154648b3090480895ff634_e2def58b-0869-4446-a0e3-55ecca8f07e9",
+      hostURL: "https://ca-tor.watson-orchestrate.cloud.ibm.com",
+      rootElementID: "root",
+      showLauncher: true,
+      crn: "crn:v1:bluemix:public:watsonx-orchestrate:ca-tor:a/a7ba2c6162154648b3090480895ff634:e2def58b-0869-4446-a0e3-55ecca8f07e9::",
+      deploymentPlatform: "ibmcloud",
+      chatOptions: {
+        agentId: "1a6a362a-db6d-4955-94ca-4a4dca99e06a",
+      },
+    };
+
+    const script = document.createElement("script");
+    script.src = `${window.wxOConfiguration.hostURL}/wxochat/wxoLoader.js?embed=true`;
+    script.addEventListener("load", () => {
+      if (window.wxoLoader) {
+        window.wxoLoader.init();
+        alert("watsonx Orchestrate webchat widget loaded! Check bottom-right of your screen for the official widget launcher.");
+      }
+    });
+    script.addEventListener("error", () => {
+      alert("Could not load wxoLoader.js from IBM Cloud. Note that Embed Security is enabled on your tenant.");
+    });
+    document.head.appendChild(script);
   });
 }
 

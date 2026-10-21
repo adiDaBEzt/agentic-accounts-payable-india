@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IBM watsonx Orchestrate — Enterprise AP &amp; Multi-Document IDP Command Center</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261022_v7" />
 </head>
 <body>
   <header class="topbar">
@@ -17,9 +17,15 @@
         </p>
       </div>
     </div>
-    <div class="topbar-status" id="tenantStatusPill">
-      <span class="status-dot"></span>
-      <span id="tenantStatusText">Connecting to ca-tor tenant...</span>
+    <div class="topbar-actions">
+      <div class="topbar-status" id="tenantStatusPill">
+        <span class="status-dot"></span>
+        <span id="tenantStatusText">Connecting to ca-tor tenant...</span>
+      </div>
+      <button type="button" class="btn-topbar-copilot" id="topbarCopilotBtn">
+        <span class="copilot-sparkle">&#10024;</span>
+        <span>Ask AP &amp; Odoo Copilot</span>
+      </button>
     </div>
   </header>
 
@@ -216,13 +222,13 @@
           <!-- WORKBENCH NAVIGATION TABS -->
           <div class="workbench-tabs" role="tablist">
             <button type="button" class="wb-tab active" data-tab="tabVisualGrounding" role="tab" aria-selected="true">
-              &#128269; Visual Bounding-Box Overlay &amp; Extracted Fields
+              &#128269; Visual Grounding &amp; Fields
             </button>
             <button type="button" class="wb-tab" data-tab="tabPoMatching" role="tab" aria-selected="false">
-              &#9878; 2-Way PO vs. Invoice Match <span class="tab-pill" id="tabPoStatusPill">MATCHED</span>
+              &#9878; 2-Way PO Match <span class="tab-pill" id="tabPoStatusPill">MATCHED</span>
             </button>
             <button type="button" class="wb-tab" data-tab="tabRiskShield" role="tab" aria-selected="false">
-              &#128737; Fraud, Duplicate &amp; Compliance Shield <span class="tab-pill" id="tabRiskScorePill">5/100</span>
+              &#128737; Fraud &amp; Compliance Shield <span class="tab-pill" id="tabRiskScorePill">5/100</span>
             </button>
           </div>
 
@@ -240,6 +246,7 @@
                     <img id="docPreviewImg" src="" alt="Document Preview" />
                     <svg id="docBboxSvg" viewBox="0 0 600 774" preserveAspectRatio="none"></svg>
                   </div>
+                  <div class="doc-empty-note" id="docEmptyNote">Page preview not available for this document.<br />Extracted fields are shown alongside.</div>
                 </div>
               </div>
 
@@ -331,7 +338,7 @@
                 <th>Vendor / Merchant</th>
                 <th>Total</th>
                 <th>2-Way PO Match</th>
-                <th>Risk Score</th>
+                <th>Risk</th>
                 <th>Approval Tier</th>
                 <th>Odoo ERP Status</th>
                 <th>Actions</th>
@@ -495,6 +502,83 @@
     </div>
   </dialog>
 
-  <script src="/static/app.js"></script>
+  <!-- Floating Copilot Button -->
+  <button type="button" class="floating-copilot-pill" id="floatingCopilotBtn" aria-label="Open watsonx AP Copilot">
+    <span class="floating-copilot-icon">&#129302;</span>
+    <span class="floating-copilot-text">Ask AP &amp; Odoo Copilot</span>
+  </button>
+
+  <!-- SLIDE-OUT WATSONX AP & ODOO COPILOT DRAWER -->
+  <aside class="copilot-drawer" id="copilotDrawer" aria-label="watsonx AP &amp; Procurement Copilot">
+    <div class="copilot-drawer-header">
+      <div class="copilot-title-group">
+        <div class="copilot-avatar">&#129302;</div>
+        <div>
+          <h3>watsonx AP &amp; Odoo Copilot</h3>
+          <p class="copilot-subtitle">Live PO Matching &bull; SQLite DB &bull; Odoo Cloud ERP</p>
+        </div>
+      </div>
+      <div class="copilot-header-controls">
+        <button type="button" class="btn-copilot-tab active" id="tabInternalCopilotBtn" title="In-App AP &amp; Odoo Copilot">AP Copilot</button>
+        <button type="button" class="btn-copilot-tab" id="tabWxOEmbedBtn" title="watsonx Orchestrate Native Webchat">wxO Webchat</button>
+        <button type="button" class="btn-close-drawer" id="closeCopilotDrawerBtn" aria-label="Close Assistant">&times;</button>
+      </div>
+    </div>
+
+    <!-- Mode 1: In-App AP Copilot with full database & Odoo integration -->
+    <div class="copilot-body" id="copilotInternalBody">
+      <!-- Quick Starters -->
+      <div class="copilot-quick-prompts">
+        <span class="quick-prompt-label">Quick Inquiries:</span>
+        <div class="quick-chips-grid">
+          <button type="button" class="quick-chip" data-query="What POs have variances?">&#128269; PO Variances</button>
+          <button type="button" class="quick-chip" data-query="Fetch the latest vendor bills from odoo">&#127970; Fetch Odoo Bills</button>
+          <button type="button" class="quick-chip" data-query="What is our total spend and breakdown?">&#128202; CFO Spend &amp; GL</button>
+          <button type="button" class="quick-chip" data-query="Show me PO-77504 details">&#128203; Audit PO-77504</button>
+          <button type="button" class="quick-chip" data-query="Which documents need VP approval?">&#9888; VP Approvals</button>
+        </div>
+      </div>
+
+      <!-- Messages Stream -->
+      <div class="copilot-messages" id="copilotMessages">
+        <div class="copilot-msg msg-assistant">
+          <div class="msg-bubble">
+            <p>&#128075; Hello! I am your <strong>watsonx Orchestrate Accounts Payable &amp; Odoo Copilot</strong>.</p>
+            <p style="margin-top:6px;">You can ask me to reconcile <strong>Purchase Orders</strong>, check for <strong>pricing/quantity variances</strong>, query historical invoices in SQLite, or fetch live <strong>Vendor Bills from Odoo Cloud ERP</strong> in plain English.</p>
+            <p style="margin-top:6px; font-size:0.8rem; color:#64748b;">Try asking <em>"What POs have variances?"</em> or <em>"Fetch bills from Odoo"</em> below.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Bar -->
+      <form class="copilot-input-bar" id="copilotInputForm">
+        <input type="text" id="copilotInputText" placeholder="Ask about POs, invoices, Odoo bills, or spend..." autocomplete="off" />
+        <button type="submit" id="copilotSendBtn" aria-label="Send message">&#10148;</button>
+      </form>
+    </div>
+
+    <!-- Mode 2: watsonx Orchestrate Native Webchat Widget Launcher & Info -->
+    <div class="copilot-body" id="copilotWxOEmbedBody" hidden>
+      <div class="wxo-embed-info-card">
+        <h4>watsonx Orchestrate Native Webchat Channel</h4>
+        <p style="font-size:0.82rem; color:#475569; margin: 6px 0 10px;">
+          The native watsonx Orchestrate Webchat widget is configured for agent <code>invoice_enterprise_agent</code> (<code>1a6a362a-db6d-4955-94ca-4a4dca99e06a</code>).
+        </p>
+        <div class="s3-meta-box" style="margin-bottom: 10px;">
+          <div class="meta-row"><strong>Tenant URL:</strong> <code class="code-wrap">https://ca-tor.watson-orchestrate.cloud.ibm.com</code></div>
+          <div class="meta-row"><strong>Agent ID:</strong> <code>1a6a362a-db6d-4955-94ca-4a4dca99e06a</code></div>
+          <div class="meta-row"><strong>Security Mode:</strong> <span class="badge-tag" style="background:#fef3c7;color:#92400e;">Embed Security Enabled</span></div>
+        </div>
+        <div class="validation-banner" style="background:#f0f7ff; color:#0369a1; border-color:#bae6fd; font-size:0.8rem;">
+          <strong>Embed Security Status:</strong> As seen in your Orchestrate <em>Embed Security</em> tab, when <strong>Security</strong> is toggled ON, watsonx Orchestrate requires a signed RS256 JWT key for user authentication. To allow direct unauthenticated webchat embedding, toggle "Security" off in the Orchestrate console.
+        </div>
+        <button type="button" class="btn-primary" id="launchNativeWebchatBtn" style="width:100%; margin-top:12px;">
+          Launch watsonx Orchestrate Webchat Widget
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="/static/app.js?v=20261022_v8"></script>
 </body>
 </html>
