@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IBM watsonx Orchestrate — Invoice IDP Pipeline</title>
+  <title>IBM watsonx Orchestrate — Enterprise AP &amp; Multi-Document IDP Command Center</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -11,9 +11,9 @@
     <div class="topbar-brand">
       <div class="brand-badge">wxO</div>
       <div>
-        <h1>IBM watsonx Orchestrate — Invoice IDP Pipeline</h1>
+        <h1>IBM watsonx Orchestrate — Enterprise AP &amp; IDP Command Center</h1>
         <p class="subtitle">
-          Custom Frontend &rarr; Built-in S3/COS Bucket (<code>/v1/orchestrate/upload-to-s3</code>) &rarr; Agentic Flow (<code>docproc</code> + GenAI Structurer) &rarr; SQLite Database
+          Multi-Channel Ingestion &rarr; S3/COS (<code>/v1/orchestrate/upload-to-s3</code>) &rarr; WDU <code>docproc</code> + 2-Way PO Match + Fraud Shield &rarr; HITL Workbench &amp; Odoo ERP
         </p>
       </div>
     </div>
@@ -23,12 +23,47 @@
     </div>
   </header>
 
+  <!-- EXECUTIVE CFO SPEND ANALYTICS & GL CATEGORY RIBBON -->
+  <section class="cfo-ribbon" aria-label="Executive Accounts Payable Analytics">
+    <div class="cfo-kpi-grid">
+      <div class="cfo-kpi-card">
+        <div class="cfo-kpi-label">Normalized AP Spend (USD)</div>
+        <div class="cfo-kpi-value" id="kpiTotalSpend">$0.00</div>
+        <div class="cfo-kpi-sub" id="kpiDocMix">0 Invoices &bull; 0 POs &bull; 0 Receipts</div>
+      </div>
+      <div class="cfo-kpi-card">
+        <div class="cfo-kpi-label">Straight-Through Processing (STP)</div>
+        <div class="cfo-kpi-value" id="kpiStpRate">0.0%</div>
+        <div class="cfo-kpi-sub" id="kpiVpCount">0 Auto-Approved / Posted</div>
+      </div>
+      <div class="cfo-kpi-card">
+        <div class="cfo-kpi-label">Odoo Cloud ERP Ledger Sync</div>
+        <div class="cfo-kpi-value" id="kpiOdooSynced">0 Bills</div>
+        <div class="cfo-kpi-sub">Live XML-RPC &bull; <code>invoiceprocessing.odoo.com</code></div>
+      </div>
+      <div class="cfo-kpi-card">
+        <div class="cfo-kpi-label">Average WDU OCR Confidence</div>
+        <div class="cfo-kpi-value" id="kpiAvgConf">98.5%</div>
+        <div class="cfo-kpi-sub">Multi-Schema KVP &amp; Table Extraction</div>
+      </div>
+    </div>
+
+    <div class="gl-breakdown-card">
+      <div class="gl-header">
+        <span class="gl-title">General Ledger (GL) Spend Allocation Breakdown</span>
+        <span class="gl-subtitle" id="glTopCategoryLabel">Auto-classified by watsonx Orchestrate GenAI Structurer</span>
+      </div>
+      <div class="gl-progress-bar" id="glProgressBar"></div>
+      <div class="gl-legend" id="glLegend"></div>
+    </div>
+  </section>
+
   <main class="workspace-grid">
     <!-- LEFT COLUMN: Upload, Execution Mode, Sample Invoices & Live Pipeline Telemetry -->
     <section class="panel panel-left">
       <div class="panel-header">
         <h2>1. Document Ingestion &amp; Flow Trigger</h2>
-        <span class="badge-tag">No Embedded Chat UI</span>
+        <span class="badge-tag">Headless &amp; Agent APIs</span>
       </div>
 
       <!-- Execution Mode Selector -->
@@ -46,7 +81,7 @@
             <input type="radio" name="execution_mode" value="agent_two_turn" />
             <div class="mode-card-title">Conversational Agent (2-Turn File Slot)</div>
             <div class="mode-card-desc">
-              <code>POST /v1/orchestrate/runs</code> (`file_upload` slot &rarr; `file_download` S3 context)
+              <code>POST /v1/orchestrate/runs</code> (<code>file_upload</code> slot &rarr; <code>file_download</code> S3 context)
             </div>
           </label>
         </div>
@@ -56,7 +91,7 @@
       <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload invoice image or PDF">
         <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.pdf,.tiff" hidden />
         <div class="dropzone-icon">&#128196;</div>
-        <p class="dropzone-title" id="dropzoneTitle">Drag &amp; drop an Invoice (PNG, JPG, PDF) or click to browse</p>
+        <p class="dropzone-title" id="dropzoneTitle">Drag &amp; drop an Invoice, PO, or Receipt (PNG, JPG, PDF)</p>
         <p class="dropzone-hint" id="dropzoneHint">Binary files are uploaded directly to watsonx Orchestrate S3/COS before triggering <code>docproc</code></p>
       </div>
 
@@ -71,13 +106,13 @@
       </div>
 
       <!-- Gmail Inbox Ingestion Card -->
-      <div class="samples-box" style="margin-top: 10px; border-color: #93c5fd; background: #f0f7ff;">
+      <div class="samples-box gmail-box">
         <div class="samples-header" style="display: flex; justify-content: space-between; align-items: center;">
-          <strong style="color: #0f62fe;">📧 Gmail Inbox Auto-Ingestion</strong>
+          <strong style="color: #0f62fe;">&#128231; Gmail Inbox Auto-Ingestion</strong>
           <span class="badge-tag" id="gmailStatusTag">aditya.krishnan2829@gmail.com</span>
         </div>
         <p style="font-size: 0.78rem; color: #475569; margin: 4px 0 8px;">
-          Send an email with an invoice attachment (PDF/PNG) to <code>aditya.krishnan2829@gmail.com</code> and click below to ingest and auto-post to Odoo!
+          Send an email with an invoice/PO attachment (PDF/PNG) to <code>aditya.krishnan2829@gmail.com</code> and click below to ingest and auto-sync to Odoo!
         </p>
         <button type="button" class="btn-secondary" id="checkGmailBtn" style="width: 100%; text-align: center;">
           Scan Gmail Inbox for Invoices
@@ -86,7 +121,7 @@
 
       <!-- Primary Action Button -->
       <button type="button" class="btn-primary" id="runPipelineBtn">
-        <span id="runBtnLabel">Upload to wxO S3 &amp; Run IDP Flow</span>
+        <span id="runBtnLabel">Upload to wxO S3 &amp; Run Direct IDP Flow</span>
       </button>
 
       <!-- Live Step-by-Step Pipeline Telemetry -->
@@ -113,8 +148,8 @@
           <li class="step-item pending" data-step="3">
             <div class="step-index">3</div>
             <div class="step-body">
-              <div class="step-title">IDP Agentic Flow (<code>docproc</code> + Logic block + GenAI Prompt)</div>
-              <div class="step-meta">WDU Multi-Schema OCR + Python Math Routing + Corporate Controller Audit</div>
+              <div class="step-title">IDP Agentic Flow (<code>docproc</code> + Logic + GenAI)</div>
+              <div class="step-meta">WDU Multi-Schema OCR + Python Math Routing + 2-Way PO Audit</div>
             </div>
           </li>
           <li class="step-item pending" data-step="4">
@@ -127,61 +162,151 @@
           <li class="step-item pending" data-step="5">
             <div class="step-index">5</div>
             <div class="step-body">
-              <div class="step-title">Odoo Cloud ERP Posting</div>
-              <div class="step-meta">XML-RPC <code>account.move.create (Vendor Bill)</code></div>
+              <div class="step-title">Odoo Cloud ERP Synchronization</div>
+              <div class="step-meta">XML-RPC <code>account.move.create</code> &amp; <code>action_post</code></div>
             </div>
           </li>
         </ol>
       </div>
     </section>
 
-    <!-- RIGHT COLUMN: Extracted Invoice Inspector + Downstream SQLite Database Table -->
+    <!-- RIGHT COLUMN: Extracted Invoice Inspector + HITL Workbench + PO Match + Fraud Shield + SQLite Table -->
     <section class="panel panel-right">
-      <!-- Active Invoice Extraction Result Card -->
+      <!-- Active Invoice Extraction & Enterprise Audit Card -->
       <div class="result-card" id="activeResultCard">
         <div class="panel-header">
           <div>
-            <h2>2. Extracted Invoice &amp; WDU <code>docproc</code> Output</h2>
-            <p class="panel-subtext" id="activeInvoiceSubtitle">Run the pipeline or click any row in the SQLite table below to inspect extracted fields.</p>
+            <h2>2. Extracted Document, Visual Grounding &amp; AP Governance Workbench</h2>
+            <p class="panel-subtext" id="activeInvoiceSubtitle">Run the pipeline or click any row in the SQLite table below to inspect extracted fields, bounding boxes, and 2-way PO matching.</p>
           </div>
           <div class="header-actions">
+            <span class="risk-pill" id="activeRiskBadge" hidden>Risk: 5/100 (LOW)</span>
             <span class="confidence-pill" id="activeConfidenceBadge" hidden>98.0% Confidence</span>
             <button type="button" class="btn-secondary" id="openInspectorModalBtn" disabled>
-              Inspect Raw WDU KVPs &amp; OCR
+              Raw WDU JSON &amp; OCR
             </button>
           </div>
         </div>
 
         <div id="emptyStateBox" class="empty-state">
-          <p>No invoice selected yet. Choose a sample invoice on the left and click <strong>Upload to wxO S3 &amp; Run IDP Flow</strong>.</p>
+          <p>No document selected yet. Choose a sample invoice on the left and click <strong>Upload to wxO S3 &amp; Run Direct IDP Flow</strong>.</p>
         </div>
 
         <div id="invoiceDetailsContainer" hidden>
-          <!-- Structured Header Fields Grid -->
-          <div class="kvp-grid" id="structuredHeaderGrid"></div>
-
-          <!-- Validation Banner -->
-          <div class="validation-banner" id="validationBanner"></div>
-
-          <!-- Extracted Line Items Table -->
-          <div class="subtable-section">
-            <h3>Extracted Line Items Table (<code>DocProcTable: line_items</code>)</h3>
-            <div class="table-scroll">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Description</th>
-                    <th>Qty</th>
-                    <th>Unit Price</th>
-                    <th>Line Amount</th>
-                    <th>GL Category</th>
-                    <th>WDU Confidence</th>
-                  </tr>
-                </thead>
-                <tbody id="lineItemsTbody"></tbody>
-              </table>
+          <!-- HITL EXECUTIVE ACTION WORKBENCH BAR -->
+          <div class="hitl-workbench-bar" id="hitlWorkbenchBar">
+            <div class="hitl-status-group">
+              <span class="hitl-label">Governance Tier:</span>
+              <span class="tier-badge" id="hitlTierBadge">AUTO_APPROVED</span>
+              <span class="odoo-state-badge" id="hitlOdooBadge">Odoo: Draft</span>
             </div>
+            <div class="hitl-actions-group">
+              <button type="button" class="btn-hitl btn-hitl-approve" id="approvePostOdooBtn" title="Finalize &amp; post Vendor Bill in Odoo General Ledger (account.move.action_post)">
+                &#10003; Approve &amp; Post Bill in Odoo
+              </button>
+              <button type="button" class="btn-hitl btn-hitl-edit" id="openEditFieldsBtn" title="Edit extracted fields inline before ERP posting">
+                &#9998; Edit Fields
+              </button>
+              <button type="button" class="btn-hitl btn-hitl-dispute" id="openDisputeModalBtn" title="Reject invoice and email formatted dispute notice via Gmail SMTP">
+                &#9888; Reject &amp; Email Dispute
+              </button>
+            </div>
+          </div>
+
+          <!-- WORKBENCH NAVIGATION TABS -->
+          <div class="workbench-tabs" role="tablist">
+            <button type="button" class="wb-tab active" data-tab="tabVisualGrounding" role="tab" aria-selected="true">
+              &#128269; Visual Bounding-Box Overlay &amp; Extracted Fields
+            </button>
+            <button type="button" class="wb-tab" data-tab="tabPoMatching" role="tab" aria-selected="false">
+              &#9878; 2-Way PO vs. Invoice Match <span class="tab-pill" id="tabPoStatusPill">MATCHED</span>
+            </button>
+            <button type="button" class="wb-tab" data-tab="tabRiskShield" role="tab" aria-selected="false">
+              &#128737; Fraud, Duplicate &amp; Compliance Shield <span class="tab-pill" id="tabRiskScorePill">5/100</span>
+            </button>
+          </div>
+
+          <!-- TAB 1: INTERACTIVE VISUAL GROUNDING + STRUCTURED FIELDS + LINE ITEMS -->
+          <div class="wb-tab-panel active" id="tabVisualGrounding">
+            <div class="visual-split-grid">
+              <!-- Left: Document Preview with Interactive SVG Bounding Boxes -->
+              <div class="doc-canvas-card">
+                <div class="doc-canvas-header">
+                  <span><strong>Interactive WDU <code>docproc</code> Bounding-Box Canvas</strong></span>
+                  <span class="canvas-hint" id="bboxHoverStatus">Hover any field or bounding box to cross-highlight</span>
+                </div>
+                <div class="doc-canvas-viewport" id="docCanvasViewport">
+                  <div class="doc-stage" id="docStage">
+                    <img id="docPreviewImg" src="" alt="Document Preview" />
+                    <svg id="docBboxSvg" viewBox="0 0 600 774" preserveAspectRatio="none"></svg>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right: Extracted Header KVPs + Validation Banner -->
+              <div class="extracted-fields-column">
+                <div class="validation-banner" id="validationBanner"></div>
+                <div class="kvp-section-label">
+                  <span>Extracted Header KVP Telemetry (Hover tile to locate on document)</span>
+                </div>
+                <div class="kvp-grid" id="structuredHeaderGrid"></div>
+              </div>
+            </div>
+
+            <!-- Extracted Line Items Table -->
+            <div class="subtable-section" style="margin-top: 16px;">
+              <h3>Extracted Line Items Table (<code>DocProcTable: line_items</code> — Hover row to highlight on document)</h3>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Description</th>
+                      <th>Qty</th>
+                      <th>Unit Price</th>
+                      <th>Line Amount</th>
+                      <th>GL Category</th>
+                      <th>WDU Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody id="lineItemsTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: AUTOMATED 2-WAY PO VS INVOICE RECONCILIATION MATRIX -->
+          <div class="wb-tab-panel" id="tabPoMatching" hidden>
+            <div class="po-summary-banner" id="poSummaryBanner"></div>
+            <div class="po-kpi-strip" id="poKpiStrip"></div>
+            <div class="subtable-section" style="margin-top: 14px;">
+              <h3>Line-by-Line Purchase Order vs. Billed Invoice Variance Matrix</h3>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Line</th>
+                      <th>Item / Service Description</th>
+                      <th>PO Auth Qty</th>
+                      <th>Billed Qty</th>
+                      <th>PO Unit Price</th>
+                      <th>Billed Unit Price</th>
+                      <th>PO Line Total</th>
+                      <th>Billed Line Total</th>
+                      <th>Delta ($)</th>
+                      <th>Audit Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="poLinesTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: FRAUD, DUPLICATE & SPLIT-INVOICE RISK SHIELD -->
+          <div class="wb-tab-panel" id="tabRiskShield" hidden>
+            <div class="risk-overview-header" id="riskOverviewHeader"></div>
+            <div class="risk-checks-grid" id="riskChecksGrid"></div>
           </div>
         </div>
       </div>
@@ -190,7 +315,7 @@
       <div class="db-card">
         <div class="panel-header">
           <div>
-            <h2>3. Downstream SQLite Database &amp; Odoo Cloud ERP Status</h2>
+            <h2>3. Downstream SQLite Database &amp; Odoo Cloud ERP Ledger</h2>
             <p class="panel-subtext">Persisted documents synced with Odoo Cloud ERP (<a href="https://invoiceprocessing.odoo.com" target="_blank" rel="noopener">invoiceprocessing.odoo.com</a>)</p>
           </div>
           <span class="badge-count" id="dbRecordCount">0 records</span>
@@ -205,15 +330,16 @@
                 <th>Reference #</th>
                 <th>Vendor / Merchant</th>
                 <th>Total</th>
+                <th>2-Way PO Match</th>
+                <th>Risk Score</th>
                 <th>Approval Tier</th>
-                <th>Odoo Bill</th>
-                <th>Confidence</th>
+                <th>Odoo ERP Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="sqliteInvoicesTbody">
               <tr>
-                <td colspan="10" class="empty-cell">No invoices stored in SQLite yet.</td>
+                <td colspan="10" class="empty-cell">No documents stored in SQLite yet.</td>
               </tr>
             </tbody>
           </table>
@@ -222,7 +348,7 @@
     </section>
   </main>
 
-  <!-- Native HTML <dialog closedby="any"> Modal for Raw WDU KVP Bounding Boxes, S3 Metadata & OCR Text -->
+  <!-- DIALOG 1: Native HTML <dialog closedby="any"> Modal for Raw WDU KVP Bounding Boxes, S3 Metadata & OCR Text -->
   <dialog id="rawInspectorDialog" closedby="any" aria-labelledby="dialogTitle">
     <div class="dialog-inner">
       <div class="dialog-header">
@@ -280,6 +406,92 @@
           <button type="submit" class="btn-secondary">Close Inspector (Esc or Click Outside)</button>
         </form>
       </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 2: HITL Inline Field Override Editor -->
+  <dialog id="editFieldsDialog" closedby="any" aria-labelledby="editDialogTitle">
+    <div class="dialog-inner" style="max-width: 640px;">
+      <div class="dialog-header">
+        <div>
+          <h2 id="editDialogTitle">Human-in-the-Loop (HITL) Field Override Workbench</h2>
+          <p class="dialog-subtitle">Review and override extracted fields before finalizing in Odoo ERP</p>
+        </div>
+        <form method="dialog">
+          <button type="submit" class="btn-close" aria-label="Close modal">&times;</button>
+        </form>
+      </div>
+      <form id="editFieldsForm" class="dialog-body">
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="editInvoiceNumber">Document / Invoice Number</label>
+            <input type="text" id="editInvoiceNumber" required />
+          </div>
+          <div class="form-field">
+            <label for="editPoNumber">Purchase Order (PO #)</label>
+            <input type="text" id="editPoNumber" />
+          </div>
+          <div class="form-field">
+            <label for="editVendorName">Vendor / Supplier Name</label>
+            <input type="text" id="editVendorName" required />
+          </div>
+          <div class="form-field">
+            <label for="editCurrency">Currency</label>
+            <input type="text" id="editCurrency" required />
+          </div>
+          <div class="form-field">
+            <label for="editSubtotal">Subtotal Amount</label>
+            <input type="number" step="0.01" id="editSubtotal" required />
+          </div>
+          <div class="form-field">
+            <label for="editTax">Tax Amount</label>
+            <input type="number" step="0.01" id="editTax" required />
+          </div>
+          <div class="form-field">
+            <label for="editTotal">Total Amount Due</label>
+            <input type="number" step="0.01" id="editTotal" required />
+          </div>
+          <div class="form-field">
+            <label for="editDueDate">Due Date</label>
+            <input type="text" id="editDueDate" />
+          </div>
+        </div>
+        <div class="dialog-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn-secondary" id="cancelEditFieldsBtn">Cancel</button>
+          <button type="submit" class="btn-primary" style="width: auto;" id="saveEditFieldsBtn">Save Overrides &amp; Re-Run Audit</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- DIALOG 3: HITL Reject & Email Vendor Dispute Notice -->
+  <dialog id="disputeDialog" closedby="any" aria-labelledby="disputeDialogTitle">
+    <div class="dialog-inner" style="max-width: 640px;">
+      <div class="dialog-header">
+        <div>
+          <h2 id="disputeDialogTitle" style="color: #da1e28;">&#9888; Reject Invoice &amp; Send Vendor Dispute Email</h2>
+          <p class="dialog-subtitle">Dispatches an official HTML Accounts Payable Exception Notice via Gmail SMTP</p>
+        </div>
+        <form method="dialog">
+          <button type="submit" class="btn-close" aria-label="Close modal">&times;</button>
+        </form>
+      </div>
+      <form id="disputeForm" class="dialog-body">
+        <div class="form-field">
+          <label for="disputeRecipient">Recipient Vendor / AP Escalation Email</label>
+          <input type="email" id="disputeRecipient" value="odoo-user@example.com" required />
+        </div>
+        <div class="form-field">
+          <label for="disputeReason">Dispute Reason &amp; Variance Findings (Included in Email Body)</label>
+          <textarea id="disputeReason" rows="5" required></textarea>
+        </div>
+        <div class="dialog-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn-secondary" id="cancelDisputeBtn">Cancel</button>
+          <button type="submit" class="btn-hitl btn-hitl-dispute" id="sendDisputeSubmitBtn" style="padding: 10px 18px;">
+            Send Dispute Email &amp; Mark Disputed
+          </button>
+        </div>
+      </form>
     </div>
   </dialog>
 

@@ -14,11 +14,12 @@ Serves:
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import requests
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.audit_engine import compute_cfo_analytics, evaluate_invoice_audit
 from backend.database import (
     delete_invoice_by_id,
     get_invoice_by_id,
@@ -26,11 +27,33 @@ from backend.database import (
     list_invoices,
     save_invoice_record,
     update_invoice_odoo_status,
+    update_invoice_workflow,
 )
 from backend.gmail_service import GmailService
 from backend.odoo_client import OdooClient
 from backend.sample_generator import SAMPLES_DIR, generate_all_samples
 from backend.wxo_client import AGENT_ID, FLOW_ID, TENANT_URL, WxOClient, normalize_wxo_kvps
+
+
+def _enrich_invoice_with_audit(inv: Dict[str, Any], all_invoices: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not inv:
+        return inv
+    inv["audit"] = evaluate_invoice_audit(inv, all_invoices)
+    # Determine best preview image URL in /samples/
+    fname = inv.get("file_name") or ""
+    if fname:
+        stem = Path(fname).stem
+        png_candidate = SAMPLES_DIR / f"{stem}.png"
+        exact_candidate = SAMPLES_DIR / fname
+        if png_candidate.exists():
+            inv["preview_image_url"] = f"/samples/{png_candidate.name}"
+        elif exact_candidate.exists():
+            inv["preview_image_url"] = f"/samples/{exact_candidate.name}"
+        else:
+            inv["preview_image_url"] = ""
+    else:
+        inv["preview_image_url"] = ""
+    return inv
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -108,10 +131,153 @@ def api_sync_invoice_to_odoo(invoice_id: int):
             line_items=inv.get("line_items", []),
             notes=f"Synced from watsonx Orchestrate IDP: {inv.get('validation_notes', '')}",
         )
-        update_invoice_odoo_status(invoice_id, bill["id"], bill.get("odoo_url", ""))
-        return {"status": "success", "bill": bill}
+        update_invoice_odoo_status(invoice_id, bill["id"], bill.get("odoo_url", ""), bill.get("state", "draft"))
+        updated = get_invoice_by_id(invoice_id)
+        all_invs = list_invoices(limit=100)
+        return {"status": "success", "bill": bill, "invoice": _enrich_invoice_with_audit(updated, all_invs)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to post to Odoo: {str(e)}")
+
+
+@app.post("/api/invoices/{invoice_id}/approve")
+def api_approve_and_post_invoice(
+    invoice_id: int,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+):
+    """
+    HITL Executive Approval Workbench endpoint:
+      1. Applies optional inline field overrides (vendor_name, total_amount, po_number, etc.)
+      2. Creates Vendor Bill in Odoo if not yet created
+      3. Calls Odoo `account.move.action_post` to transition state from `draft` -> `posted`
+      4. Marks record as `APPROVED_BY_VP` and `odoo_state = 'posted'`
+    """
+    inv = get_invoice_by_id(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    overrides = (payload or {}).get("overrides") or {}
+    approver_note = (payload or {}).get("note") or "Executive HITL Sign-Off: Approved & Posted to Odoo General Ledger."
+
+    if overrides:
+        inv = update_invoice_workflow(invoice_id, overrides=overrides) or inv
+
+    try:
+        bill_id = inv.get("odoo_bill_id")
+        odoo_url = inv.get("odoo_url") or ""
+        if not bill_id:
+            created_bill = odoo_client.create_vendor_bill(
+                invoice_number=inv["invoice_number"],
+                vendor_name=inv["vendor_name"],
+                invoice_date=inv.get("invoice_date", ""),
+                due_date=inv.get("due_date", ""),
+                currency=inv.get("currency", "USD"),
+                line_items=inv.get("line_items", []),
+                notes=f"Approved via watsonx Orchestrate HITL Workbench: {approver_note}",
+            )
+            bill_id = created_bill["id"]
+            odoo_url = created_bill.get("odoo_url", "")
+
+        posted_bill = odoo_client.post_vendor_bill(
+            int(bill_id), fallback_date=inv.get("invoice_date") or "2026-10-21"
+        )
+        odoo_state = posted_bill.get("state", "posted")
+        bill_seq_name = posted_bill.get("name", f"BILL #{bill_id}")
+
+        existing_notes = inv.get("validation_notes") or ""
+        updated_notes = f"{existing_notes} | [VP APPROVED & POSTED: {bill_seq_name}]".strip(" |")
+
+        updated_inv = update_invoice_workflow(
+            invoice_id=invoice_id,
+            approval_tier="APPROVED_BY_VP",
+            validation_notes=updated_notes,
+            odoo_bill_id=int(bill_id),
+            odoo_url=odoo_url,
+            odoo_state=odoo_state,
+        )
+        all_invs = list_invoices(limit=100)
+        return {
+            "status": "success",
+            "odoo_bill": posted_bill,
+            "invoice": _enrich_invoice_with_audit(updated_inv, all_invs),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HITL Approval / Odoo Posting error: {str(e)}")
+
+
+@app.post("/api/invoices/{invoice_id}/update-fields")
+def api_update_invoice_fields(
+    invoice_id: int,
+    payload: Dict[str, Any] = Body(...),
+):
+    inv = get_invoice_by_id(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    overrides = payload.get("overrides") or payload
+    updated_inv = update_invoice_workflow(
+        invoice_id=invoice_id,
+        validation_notes=payload.get("validation_notes"),
+        overrides=overrides,
+    )
+    all_invs = list_invoices(limit=100)
+    return {
+        "status": "success",
+        "invoice": _enrich_invoice_with_audit(updated_inv, all_invs),
+    }
+
+
+@app.post("/api/invoices/{invoice_id}/dispute")
+def api_dispute_invoice(
+    invoice_id: int,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    HITL Dispute & Exception Notification endpoint:
+      1. Sends a formatted HTML AP Dispute Notification via Gmail SMTP to the specified recipient
+      2. Updates the invoice approval_tier to `REJECTED_DISPUTED`
+    """
+    inv = get_invoice_by_id(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    all_invs = list_invoices(limit=100)
+    audit = evaluate_invoice_audit(inv, all_invs)
+
+    recipient = (payload.get("recipient_email") or gmail_service.user or "").strip()
+    reason = (payload.get("reason") or "PO / Arithmetic Audit Discrepancy flagged during AP review.").strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is required.")
+
+    po_summary = audit.get("po_match", {}).get("summary", "")
+    risk_summary = f"Risk Score: {audit.get('risk_shield', {}).get('risk_score', 0)}/100 ({audit.get('risk_shield', {}).get('risk_level', 'LOW')}) — {po_summary}"
+
+    try:
+        gmail_service.send_dispute_email(
+            recipient=recipient,
+            invoice=inv,
+            reason=reason,
+            audit_summary=risk_summary,
+        )
+        existing_notes = inv.get("validation_notes") or ""
+        updated_notes = f"{existing_notes} | [DISPUTE EMAILED TO {recipient}: {reason}]".strip(" |")
+        updated_inv = update_invoice_workflow(
+            invoice_id=invoice_id,
+            approval_tier="REJECTED_DISPUTED",
+            validation_notes=updated_notes,
+        )
+        all_invs_after = list_invoices(limit=100)
+        return {
+            "status": "success",
+            "recipient": recipient,
+            "invoice": _enrich_invoice_with_audit(updated_inv, all_invs_after),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send dispute email: {str(e)}")
+
+
+@app.get("/api/analytics")
+def api_get_cfo_analytics():
+    records = list_invoices(limit=200)
+    return compute_cfo_analytics(records)
 
 
 @app.post("/api/gmail/check-inbox")
@@ -180,8 +346,13 @@ def get_sample_invoices():
 
 @app.get("/api/invoices")
 def api_list_invoices():
-    records = list_invoices()
-    return {"invoices": records, "count": len(records)}
+    records = list_invoices(limit=100)
+    enriched = [_enrich_invoice_with_audit(dict(r), records) for r in records]
+    return {
+        "invoices": enriched,
+        "count": len(enriched),
+        "analytics": compute_cfo_analytics(records),
+    }
 
 
 @app.get("/api/invoices/{invoice_id}")
@@ -189,7 +360,8 @@ def api_get_invoice(invoice_id: int):
     record = get_invoice_by_id(invoice_id)
     if not record:
         raise HTTPException(status_code=404, detail=f"Invoice #{invoice_id} not found")
-    return record
+    all_records = list_invoices(limit=100)
+    return _enrich_invoice_with_audit(record, all_records)
 
 
 @app.delete("/api/invoices/{invoice_id}")
@@ -216,8 +388,13 @@ async def api_process_invoice(
       Step 4: Normalize WDU `docproc` KVPs, bounding boxes, and line items, and persist to SQLite.
     """
     if file is not None and file.filename:
-        filename = file.filename
+        filename = Path(file.filename).name
         file_bytes = await file.read()
+        # Save a copy in SAMPLES_DIR so the Interactive Bounding-Box Canvas can preview it
+        try:
+            (SAMPLES_DIR / filename).write_bytes(file_bytes)
+        except Exception:
+            pass
     elif sample_filename:
         sample_path = SAMPLES_DIR / Path(sample_filename).name
         if not sample_path.exists():
@@ -371,9 +548,10 @@ async def api_process_invoice(
             telemetry=telemetry,
         )
 
+        all_records = list_invoices(limit=100)
         return {
             "status": "success",
-            "invoice": saved_record,
+            "invoice": _enrich_invoice_with_audit(saved_record, all_records),
             "telemetry": telemetry,
         }
 

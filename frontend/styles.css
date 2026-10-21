@@ -675,4 +675,573 @@ dialog#rawInspectorDialog::backdrop {
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ============================================================================
+   ENTERPRISE CFO ANALYTICS RIBBON & GL BREAKDOWN BAR
+   ============================================================================ */
+.cfo-ribbon {
+  max-width: 1680px;
+  margin: 18px auto 0;
+  padding: 0 28px;
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 1260px) {
+  .cfo-ribbon {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cfo-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .cfo-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.cfo-kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+  border-top: 3px solid var(--ibm-blue);
+}
+
+.cfo-kpi-label {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.cfo-kpi-value {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 4px 0 2px;
+}
+
+.cfo-kpi-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.gl-breakdown-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 9px;
+}
+
+.gl-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.gl-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gl-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.gl-progress-bar {
+  height: 12px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  width: 100%;
+}
+
+.gl-segment {
+  height: 100%;
+  transition: width 0.35s ease;
+}
+
+.gl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 0.76rem;
+  color: #334155;
+}
+
+.gl-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.gmail-box {
+  margin-top: 4px;
+  border-color: #93c5fd;
+  background: #f0f7ff;
+}
+
+/* ============================================================================
+   HITL WORKBENCH BAR & TABS
+   ============================================================================ */
+.risk-pill {
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #defbe6;
+  color: #198038;
+}
+
+.risk-pill.medium {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.risk-pill.high {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.hitl-workbench-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-left: 4px solid var(--ibm-blue);
+  border-radius: 8px;
+  padding: 11px 15px;
+  margin-bottom: 14px;
+}
+
+.hitl-status-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hitl-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tier-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #defbe6;
+  color: #198038;
+}
+
+.tier-badge.vp {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.tier-badge.rejected {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.odoo-state-badge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.odoo-state-badge.posted {
+  background: #0f62fe;
+  color: #ffffff;
+}
+
+.hitl-actions-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-hitl {
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 0.81rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.btn-hitl:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-hitl-approve {
+  background: #198038;
+  color: #ffffff;
+}
+
+.btn-hitl-approve:hover:not(:disabled) {
+  background: #0e6027;
+}
+
+.btn-hitl-edit {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+
+.btn-hitl-edit:hover:not(:disabled) {
+  border-color: var(--ibm-blue);
+  color: var(--ibm-blue);
+}
+
+.btn-hitl-dispute {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fda4af;
+}
+
+.btn-hitl-dispute:hover:not(:disabled) {
+  background: #ffe4e6;
+}
+
+/* Workbench Tabs */
+.workbench-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 2px solid var(--border-color);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.wb-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  padding: 9px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.wb-tab:hover {
+  color: var(--ibm-blue);
+}
+
+.wb-tab.active {
+  color: var(--ibm-blue);
+  border-bottom-color: var(--ibm-blue);
+  background: #f8fafc;
+}
+
+.tab-pill {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+/* ============================================================================
+   INTERACTIVE BOUNDING-BOX DOCUMENT CANVAS + SPLIT VIEW
+   ============================================================================ */
+.visual-split-grid {
+  display: grid;
+  grid-template-columns: 390px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1320px) {
+  .visual-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.doc-canvas-card {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 10px;
+  color: #f8fafc;
+  border: 1px solid #1e293b;
+}
+
+.doc-canvas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.76rem;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.canvas-hint {
+  color: #93c5fd;
+  font-size: 0.73rem;
+}
+
+.doc-canvas-viewport {
+  background: #1e293b;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.doc-stage {
+  position: relative;
+  width: 100%;
+  line-height: 0;
+}
+
+.doc-stage img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+.doc-stage svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: all;
+}
+
+.bbox-rect {
+  fill: rgba(15, 98, 254, 0.12);
+  stroke: #0f62fe;
+  stroke-width: 1.6;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.bbox-rect.bbox-line-item {
+  fill: rgba(16, 185, 129, 0.11);
+  stroke: #10b981;
+}
+
+.bbox-rect:hover,
+.bbox-rect.active-bbox {
+  fill: rgba(245, 158, 11, 0.34);
+  stroke: #f59e0b;
+  stroke-width: 2.8;
+}
+
+.kvp-section-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.kvp-tile {
+  transition: all 0.12s ease;
+}
+
+.kvp-tile.bbox-linked {
+  cursor: pointer;
+}
+
+.kvp-tile.active-kvp,
+.data-table tbody tr.active-line-row {
+  outline: 2px solid #f59e0b;
+  background: #fffbeb !important;
+}
+
+/* ============================================================================
+   2-WAY PO MATCH & FRAUD RISK SHIELD PANELS
+   ============================================================================ */
+.po-summary-banner {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  border: 1px solid #a3cfbb;
+  background: #defbe6;
+  color: #0f5132;
+}
+
+.po-summary-banner.variance {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.po-summary-banner.nopo {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.po-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 10px;
+}
+
+.risk-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+
+.risk-score-circle {
+  font-size: 1.5rem;
+  font-weight: 800;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #defbe6;
+  color: #198038;
+}
+
+.risk-score-circle.medium {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.risk-score-circle.high {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.risk-checks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+}
+
+.risk-check-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border-left: 4px solid #198038;
+}
+
+.risk-check-card.WARN {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.risk-check-card.FAIL {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+
+.risk-check-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.risk-check-detail {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Dialog Forms */
+dialog#editFieldsDialog,
+dialog#disputeDialog {
+  margin: auto;
+  width: min(640px, 94vw);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+  background: #ffffff;
+  color: var(--text-main);
+}
+
+dialog#editFieldsDialog::backdrop,
+dialog#disputeDialog::backdrop {
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-field input,
+.form-field textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+  font-family: inherit;
 }

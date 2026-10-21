@@ -50,6 +50,7 @@ def init_db() -> None:
                 source_channel TEXT NOT NULL DEFAULT 'web_upload',
                 odoo_bill_id INTEGER DEFAULT NULL,
                 odoo_url TEXT NOT NULL DEFAULT '',
+                odoo_state TEXT NOT NULL DEFAULT 'draft',
                 file_name TEXT NOT NULL DEFAULT '',
                 s3_url TEXT NOT NULL DEFAULT '',
                 wxo_thread_id TEXT NOT NULL DEFAULT '',
@@ -89,6 +90,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE invoices ADD COLUMN odoo_bill_id INTEGER DEFAULT NULL")
         if "odoo_url" not in cols:
             conn.execute("ALTER TABLE invoices ADD COLUMN odoo_url TEXT NOT NULL DEFAULT ''")
+        if "odoo_state" not in cols:
+            conn.execute("ALTER TABLE invoices ADD COLUMN odoo_state TEXT NOT NULL DEFAULT 'draft'")
 
         cursor_items = conn.execute("PRAGMA table_info(invoice_line_items)")
         item_cols = [r["name"] for r in cursor_items.fetchall()]
@@ -291,13 +294,76 @@ def list_invoices(limit: int = 50) -> List[Dict[str, Any]]:
         return results
 
 
-def update_invoice_odoo_status(invoice_id: int, odoo_bill_id: int, odoo_url: str) -> None:
+def update_invoice_odoo_status(
+    invoice_id: int, odoo_bill_id: int, odoo_url: str, odoo_state: str = "draft"
+) -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE invoices SET odoo_bill_id = ?, odoo_url = ? WHERE id = ?",
-            (odoo_bill_id, odoo_url, invoice_id),
+            "UPDATE invoices SET odoo_bill_id = ?, odoo_url = ?, odoo_state = ? WHERE id = ?",
+            (odoo_bill_id, odoo_url, odoo_state, invoice_id),
         )
         conn.commit()
+
+
+def update_invoice_workflow(
+    invoice_id: int,
+    approval_tier: Optional[str] = None,
+    validation_notes: Optional[str] = None,
+    odoo_bill_id: Optional[int] = None,
+    odoo_url: Optional[str] = None,
+    odoo_state: Optional[str] = None,
+    overrides: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    updates: List[str] = []
+    params: List[Any] = []
+
+    if approval_tier is not None:
+        updates.append("approval_tier = ?")
+        params.append(approval_tier)
+    if validation_notes is not None:
+        updates.append("validation_notes = ?")
+        params.append(validation_notes)
+    if odoo_bill_id is not None:
+        updates.append("odoo_bill_id = ?")
+        params.append(odoo_bill_id)
+    if odoo_url is not None:
+        updates.append("odoo_url = ?")
+        params.append(odoo_url)
+    if odoo_state is not None:
+        updates.append("odoo_state = ?")
+        params.append(odoo_state)
+
+    if overrides:
+        allowed_str_fields = {
+            "invoice_number",
+            "invoice_date",
+            "due_date",
+            "vendor_name",
+            "buyer_name",
+            "po_number",
+            "payment_terms",
+            "currency",
+            "document_type",
+        }
+        allowed_float_fields = {"subtotal_amount", "tax_amount", "total_amount"}
+        for key, val in overrides.items():
+            if key in allowed_str_fields and val is not None:
+                updates.append(f"{key} = ?")
+                params.append(str(val))
+            elif key in allowed_float_fields and val is not None:
+                updates.append(f"{key} = ?")
+                params.append(_parse_float(val))
+
+    if updates:
+        params.append(invoice_id)
+        with get_connection() as conn:
+            conn.execute(
+                f"UPDATE invoices SET {', '.join(updates)} WHERE id = ?",
+                tuple(params),
+            )
+            conn.commit()
+
+    return get_invoice_by_id(invoice_id)
 
 
 def delete_invoice_by_id(invoice_id: int) -> bool:

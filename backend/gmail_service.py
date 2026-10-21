@@ -198,3 +198,59 @@ class GmailService:
             return True
         except Exception:
             return False
+
+    def send_dispute_email(
+        self,
+        recipient: str,
+        invoice: Dict[str, Any],
+        reason: str,
+        audit_summary: str = "",
+    ) -> bool:
+        """Send an automated Accounts Payable Dispute / Variance Notice via Gmail SMTP."""
+        if not recipient or not self.user or not self.password:
+            return False
+
+        inv_num = invoice.get("invoice_number") or "N/A"
+        vendor = invoice.get("vendor_name") or "Vendor"
+        po_num = invoice.get("po_number") or "N/A"
+        total = f"{invoice.get('currency', 'USD')} {Number_str(invoice.get('total_amount', 0.0))}"
+
+        msg = MIMEMultipart()
+        msg["From"] = f"watsonx AP Governance Controller <{self.user}>"
+        msg["To"] = recipient
+        msg["Subject"] = f"[AP DISPUTE HOLD] Invoice {inv_num} ({vendor}) — Variance / Audit Exception"
+
+        body_html = f"""
+        <html>
+        <body style="font-family: -apple-system, sans-serif; color: #0f172a; line-height: 1.55;">
+          <div style="border-left: 4px solid #da1e28; padding-left: 14px; margin-bottom: 16px;">
+            <h2 style="margin: 0; color: #da1e28;">Accounts Payable Exception &amp; Dispute Notice</h2>
+            <p style="margin: 4px 0 0; color: #64748b;">Issued by <strong>IBM watsonx Orchestrate IDP Governance Workbench</strong></p>
+          </div>
+          <p>Dear <strong>{vendor}</strong> Billing Team,</p>
+          <p>Your submitted invoice <strong>{inv_num}</strong> (referencing PO <code>{po_num}</code>) for <strong>{total}</strong> has been placed on <strong>AP Dispute Hold</strong> following our automated 2-Way Purchase Order &amp; Arithmetic Audit:</p>
+          <div style="background: #fff1f1; border: 1px solid #fecaca; border-radius: 6px; padding: 12px 14px; margin: 14px 0;">
+            <div style="font-weight: 700; color: #991b1b; margin-bottom: 4px;">Dispute Reason / Controller Finding:</div>
+            <div style="color: #1e293b;">{reason}</div>
+            {f'<div style="margin-top: 8px; font-size: 0.85rem; color: #475569;"><strong>System Audit Detail:</strong> {audit_summary}</div>' if audit_summary else ''}
+          </div>
+          <p>Please issue a corrected invoice or credit memo referencing <strong>{inv_num}</strong> and reply to this email with the revised PDF attached for automatic re-ingestion.</p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="font-size: 0.8rem; color: #94a3b8;">IBM watsonx Orchestrate • Automated AP 2-Way PO Matching &amp; Fraud Shield</p>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(body_html, "html"))
+
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=context) as server:
+            server.login(self.user, self.password)
+            server.sendmail(self.user, [recipient], msg.as_string())
+        return True
+
+
+def Number_str(val: Any) -> str:
+    try:
+        return f"{float(val):,.2f}"
+    except Exception:
+        return str(val)

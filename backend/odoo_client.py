@@ -170,3 +170,58 @@ class OdooClient:
             else:
                 b["vendor_name"] = "Unknown Vendor"
         return bills
+
+    def post_vendor_bill(self, bill_id: int, fallback_date: str = "2026-10-21") -> Dict[str, Any]:
+        """
+        Confirm / Post a Draft Vendor Bill in Odoo (`account.move.action_post`),
+        transitioning its state from 'draft' to 'posted' and assigning an official
+        accounting sequence number (e.g. BILL/26-27/10/0001).
+        """
+        uid = self.get_uid()
+        models = self._object_proxy()
+
+        existing = models.execute_kw(
+            self.db,
+            uid,
+            self.password,
+            "account.move",
+            "read",
+            [[bill_id]],
+            {"fields": ["id", "state", "invoice_date"]},
+        )
+        if not existing:
+            raise RuntimeError(f"Odoo Vendor Bill #{bill_id} not found")
+
+        bill_info = existing[0]
+        if not bill_info.get("invoice_date"):
+            models.execute_kw(
+                self.db,
+                uid,
+                self.password,
+                "account.move",
+                "write",
+                [[bill_id], {"invoice_date": fallback_date or "2026-10-21"}],
+            )
+
+        if bill_info.get("state") == "draft":
+            try:
+                models.execute_kw(
+                    self.db, uid, self.password, "account.move", "action_post", [[bill_id]]
+                )
+            except xmlrpc.client.Fault as fault:
+                # Odoo XML-RPC action_post returns None in Python which may raise Marshaller Fault even when succeeded
+                if "cannot marshal None" not in str(fault):
+                    raise
+
+        read_res = models.execute_kw(
+            self.db,
+            uid,
+            self.password,
+            "account.move",
+            "read",
+            [[bill_id]],
+            {"fields": ["id", "name", "ref", "amount_total", "state", "invoice_date", "partner_id"]},
+        )
+        bill_data = read_res[0] if read_res else {"id": bill_id, "state": "posted"}
+        bill_data["odoo_url"] = f"{self.url}/web#id={bill_id}&model=account.move&view_type=form"
+        return bill_data
