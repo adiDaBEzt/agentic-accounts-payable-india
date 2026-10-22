@@ -14,7 +14,7 @@
 
 const state = {
   selectedFile: null,
-  selectedSampleFilename: "invoice_acme_cloud_0042.png",
+  selectedSampleFilename: "clean_invoices/invoice_acme_cloud_0042.png",
   executionMode: "direct_flow",
   activeInvoice: null,
   invoices: [],
@@ -285,25 +285,85 @@ function renderCfoAnalytics(analytics) {
 
 function renderSampleButtons(samples) {
   sampleButtonsContainer.innerHTML = "";
-  samples.forEach((s, idx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `sample-btn ${s.png_filename === state.selectedSampleFilename ? "selected" : ""}`;
-    btn.dataset.filename = s.png_filename;
-    const typeTag = s.doc_type || "Invoice";
-    const label = `[${typeTag}] ${s.invoice_number} — ${s.vendor_name} (${s.currency} ${s.total_amount})`;
-    btn.innerHTML = `
-      <span><strong>#${idx + 1}:</strong> ${escapeHtml(label)}</span>
-      <a class="sample-preview-link" href="/samples/${s.png_filename}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Preview PNG</a>
-    `;
-    btn.addEventListener("click", () => selectSampleInvoice(s.png_filename, label));
-    sampleButtonsContainer.appendChild(btn);
+
+  // Group by category / subfolder
+  const groups = {};
+  samples.forEach((s) => {
+    const key = s.subfolder || "clean_invoices";
+    if (!groups[key]) {
+      groups[key] = {
+        title: s.category || key.replace(/_/g, " ").toUpperCase(),
+        subfolder: key,
+        items: [],
+      };
+    }
+    groups[key].items.push(s);
   });
+
+  const groupOrder = ["clean_invoices", "variance_invoices", "purchase_orders", "receipts"];
+  const sortedKeys = Object.keys(groups).sort((a, b) => {
+    const ia = groupOrder.indexOf(a);
+    const ib = groupOrder.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  sortedKeys.forEach((key) => {
+    const g = groups[key];
+    const groupDiv = document.createElement("div");
+    groupDiv.className = "sample-group";
+
+    let icon = "📄";
+    let badgeColor = "#0f62fe";
+    let badgeLabel = `${g.items.length} files`;
+    if (g.subfolder === "clean_invoices") {
+      icon = "✅";
+      badgeColor = "#198038";
+      badgeLabel = "100% PO Match & STP";
+    } else if (g.subfolder === "variance_invoices") {
+      icon = "⚠️";
+      badgeColor = "#da1e28";
+      badgeLabel = "PO Variance Exception";
+    } else if (g.subfolder === "purchase_orders") {
+      icon = "📋";
+      badgeColor = "#007d79";
+      badgeLabel = "Authoritative PO";
+    } else if (g.subfolder === "receipts") {
+      icon = "🧾";
+      badgeColor = "#8a3ffc";
+      badgeLabel = "Corporate T&E";
+    }
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "sample-group-title";
+    titleEl.innerHTML = `
+      <span>${icon} <strong>${escapeHtml(g.title)}</strong></span>
+      <span class="badge-tag" style="background:${badgeColor}15;color:${badgeColor};border:1px solid ${badgeColor}40;">${badgeLabel}</span>
+    `;
+    groupDiv.appendChild(titleEl);
+
+    g.items.forEach((s) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `sample-btn ${s.png_filename === state.selectedSampleFilename || s.raw_filename === state.selectedSampleFilename ? "selected" : ""}`;
+      btn.dataset.filename = s.png_filename;
+      const typeTag = s.doc_type || "Invoice";
+      const label = `[${typeTag}] ${s.invoice_number} — ${s.vendor_name} (${s.currency} ${s.total_amount})`;
+      btn.innerHTML = `
+        <span><strong>${escapeHtml(s.invoice_number)}:</strong> ${escapeHtml(s.vendor_name)} <span style="color:#64748b;">(${escapeHtml(s.currency)} ${escapeHtml(s.total_amount)})</span></span>
+        <a class="sample-preview-link" href="/samples/${s.png_filename}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Preview PNG</a>
+      `;
+      btn.addEventListener("click", () => selectSampleInvoice(s.png_filename, label));
+      groupDiv.appendChild(btn);
+    });
+
+    sampleButtonsContainer.appendChild(groupDiv);
+  });
+
   if (samples.length > 0 && state.selectedSampleFilename) {
-    const first = samples[0];
+    const target = samples.find((x) => x.png_filename === state.selectedSampleFilename) || samples[0];
     selectSampleInvoice(
-      first.png_filename,
-      `[${first.doc_type || "Invoice"}] ${first.invoice_number} — ${first.vendor_name} (${first.currency} ${first.total_amount})`
+      target.png_filename,
+      `[${target.doc_type || "Invoice"}] ${target.invoice_number} — ${target.vendor_name} (${target.currency} ${target.total_amount})`
     );
   }
 }

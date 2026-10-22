@@ -40,16 +40,18 @@ def _enrich_invoice_with_audit(inv: Dict[str, Any], all_invoices: List[Dict[str,
     if not inv:
         return inv
     inv["audit"] = evaluate_invoice_audit(inv, all_invoices)
-    # Determine best preview image URL in /samples/
+    # Determine best preview image URL across /samples/ subfolders
     fname = inv.get("file_name") or ""
     if fname:
         stem = Path(fname).stem
-        png_candidate = SAMPLES_DIR / f"{stem}.png"
-        exact_candidate = SAMPLES_DIR / fname
-        if png_candidate.exists():
-            inv["preview_image_url"] = f"/samples/{png_candidate.name}"
-        elif exact_candidate.exists():
-            inv["preview_image_url"] = f"/samples/{exact_candidate.name}"
+        png_candidate = next(SAMPLES_DIR.rglob(f"{stem}.png"), None)
+        exact_candidate = next(SAMPLES_DIR.rglob(fname), None)
+        if png_candidate and png_candidate.exists():
+            rel = png_candidate.relative_to(SAMPLES_DIR).as_posix()
+            inv["preview_image_url"] = f"/samples/{rel}"
+        elif exact_candidate and exact_candidate.exists():
+            rel = exact_candidate.relative_to(SAMPLES_DIR).as_posix()
+            inv["preview_image_url"] = f"/samples/{rel}"
         else:
             inv["preview_image_url"] = ""
     else:
@@ -420,8 +422,11 @@ async def api_process_invoice(
         except Exception:
             pass
     elif sample_filename:
-        sample_path = SAMPLES_DIR / Path(sample_filename).name
+        # Check direct path or search recursively across subfolders
+        sample_path = SAMPLES_DIR / sample_filename
         if not sample_path.exists():
+            sample_path = next(SAMPLES_DIR.rglob(Path(sample_filename).name), None)
+        if not sample_path or not sample_path.exists():
             raise HTTPException(status_code=404, detail=f"Sample file '{sample_filename}' not found")
         filename = sample_path.name
         file_bytes = sample_path.read_bytes()
