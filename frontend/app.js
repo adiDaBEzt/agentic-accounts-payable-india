@@ -61,6 +61,7 @@ const openEditFieldsBtn = document.getElementById("openEditFieldsBtn");
 const openDisputeModalBtn = document.getElementById("openDisputeModalBtn");
 
 const tabPoStatusPill = document.getElementById("tabPoStatusPill");
+const tabApAutoPill = document.getElementById("tabApAutoPill");
 const tabRiskScorePill = document.getElementById("tabRiskScorePill");
 
 // Visual Grounding Canvas & Fields
@@ -71,10 +72,16 @@ const structuredHeaderGrid = document.getElementById("structuredHeaderGrid");
 const validationBanner = document.getElementById("validationBanner");
 const lineItemsTbody = document.getElementById("lineItemsTbody");
 
-// PO Matching & Risk Shield Panels
+// PO Matching, Step PO, AP Automation & Risk Shield Panels
 const poSummaryBanner = document.getElementById("poSummaryBanner");
 const poKpiStrip = document.getElementById("poKpiStrip");
+const stepPoSection = document.getElementById("stepPoSection");
 const poLinesTbody = document.getElementById("poLinesTbody");
+const apAutoBanner = document.getElementById("apAutoBanner");
+const apWaterfallGrid = document.getElementById("apWaterfallGrid");
+const apActionInfo = document.getElementById("apActionInfo");
+const executeApRunBtn = document.getElementById("executeApRunBtn");
+const apJournalTbody = document.getElementById("apJournalTbody");
 const riskOverviewHeader = document.getElementById("riskOverviewHeader");
 const riskChecksGrid = document.getElementById("riskChecksGrid");
 
@@ -455,6 +462,7 @@ function setActiveInvoice(inv) {
 
   const audit = inv.audit || {};
   const poMatch = audit.po_match || {};
+  const apAuto = audit.ap_automation || {};
   const riskShield = audit.risk_shield || {};
 
   // Risk Pill in Top Right
@@ -462,10 +470,18 @@ function setActiveInvoice(inv) {
   const rLevel = riskShield.risk_level || "LOW";
   activeRiskBadge.hidden = false;
   activeRiskBadge.textContent = `Risk: ${rScore}/100 (${rLevel})`;
-  activeRiskBadge.className = `risk-pill ${rLevel === "HIGH" ? "high" : rLevel === "MEDIUM" ? "medium" : ""}`;
+  activeRiskBadge.className = `risk-pill ${rLevel === "HIGH" || rLevel === "CRITICAL" ? "high" : rLevel === "MEDIUM" ? "medium" : ""}`;
 
   // Tab Pills
-  tabPoStatusPill.textContent = poMatch.status || "MATCHED";
+  const threeWaySt = poMatch.three_way_status || poMatch.status || "MATCHED";
+  tabPoStatusPill.textContent =
+    threeWaySt === "MATCHED"
+      ? "3-WAY OK"
+      : threeWaySt === "GRN_SHORTAGE_DETECTED"
+      ? "GRN SHORTAGE"
+      : poMatch.status === "VARIANCE_DETECTED"
+      ? "VARIANCE"
+      : poMatch.status_label || poMatch.status || "MATCHED";
   tabPoStatusPill.style.background =
     poMatch.status === "MATCHED"
       ? "#defbe6"
@@ -479,11 +495,22 @@ function setActiveInvoice(inv) {
       ? "#b91c1c"
       : "#334155";
 
+  if (tabApAutoPill) {
+    const hasDebitMemo = Number(apAuto.debit_memo_deduction || 0) > 0;
+    tabApAutoPill.textContent = hasDebitMemo
+      ? `SHORT-PAY (${apAuto.debit_memo_number || "DM"})`
+      : Number(apAuto.early_discount_savings || 0) > 0
+      ? `SAVE ${inv.currency} ${Number(apAuto.early_discount_savings).toFixed(0)}`
+      : "STP READY";
+    tabApAutoPill.style.background = hasDebitMemo ? "#fef3c7" : "#e0f2fe";
+    tabApAutoPill.style.color = hasDebitMemo ? "#b45309" : "#0369a1";
+  }
+
   tabRiskScorePill.textContent = `${rScore}/100`;
   tabRiskScorePill.style.background =
-    rLevel === "HIGH" ? "#fee2e2" : rLevel === "MEDIUM" ? "#fef3c7" : "#defbe6";
+    rLevel === "HIGH" || rLevel === "CRITICAL" ? "#fee2e2" : rLevel === "MEDIUM" ? "#fef3c7" : "#defbe6";
   tabRiskScorePill.style.color =
-    rLevel === "HIGH" ? "#b91c1c" : rLevel === "MEDIUM" ? "#b45309" : "#198038";
+    rLevel === "HIGH" || rLevel === "CRITICAL" ? "#b91c1c" : rLevel === "MEDIUM" ? "#b45309" : "#198038";
 
   // HITL Workbench Status Badges
   const tier = inv.approval_tier || "AUTO_APPROVED";
@@ -572,10 +599,13 @@ function setActiveInvoice(inv) {
   // Render Interactive Document Preview & SVG Bounding Boxes
   renderInteractiveBoundingBoxes(inv);
 
-  // Render Tab 2: 2-Way PO Match
+  // Render Tab 2: 3-Way PO + GRN Match & Step POs
   renderPoMatchingTab(inv, poMatch);
 
-  // Render Tab 3: Fraud & Compliance Shield
+  // Render Tab 3: AP Payment Automation & GL Ledger Preview
+  renderApAutomationTab(inv, apAuto, poMatch);
+
+  // Render Tab 4: Fraud & Compliance Shield
   renderRiskShieldTab(inv, riskShield);
 
   renderSqliteTable();
@@ -689,69 +719,309 @@ function clearFieldHighlights() {
 
 function renderPoMatchingTab(inv, poMatch) {
   const status = poMatch.status || "NO_PO";
+  const twoWayStatus = poMatch.two_way_status || status;
+  const threeWayStatus = poMatch.three_way_status || status;
+  const simMode = poMatch.simulation_mode || "normal";
+
+  // Highlight active scenario simulation button
+  document.querySelectorAll(".btn-sim").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.sim === simMode);
+  });
+
   poSummaryBanner.className = `po-summary-banner ${
     status === "VARIANCE_DETECTED" ? "variance" : status === "MATCHED" ? "" : "nopo"
   }`;
-  poSummaryBanner.textContent = poMatch.summary || "No PO comparison available.";
+  poSummaryBanner.textContent = poMatch.summary || "No 3-Way PO/GRN comparison available.";
 
   const cur = inv.currency || "USD";
+  const grnVariance = Number(poMatch.grn_variance ?? poMatch.subtotal_variance ?? 0);
   poKpiStrip.innerHTML = `
     <div class="kvp-tile highlight">
       <div class="kvp-tile-label">PO Reference #</div>
       <div class="kvp-tile-value">${escapeHtml(poMatch.po_number || "None")}</div>
     </div>
-    <div class="kvp-tile">
-      <div class="kvp-tile-label">Authority Source</div>
-      <div class="kvp-tile-value">${escapeHtml(poMatch.po_source || "N/A")}</div>
+    <div class="kvp-tile highlight">
+      <div class="kvp-tile-label">Warehouse GRN / SES #</div>
+      <div class="kvp-tile-value">${escapeHtml(poMatch.grn_number || "N/A")} (${escapeHtml(poMatch.grn_date || "—")})</div>
     </div>
     <div class="kvp-tile">
-      <div class="kvp-tile-label">Authorized PO Subtotal</div>
-      <div class="kvp-tile-value">${cur} ${Number(poMatch.authorized_subtotal || 0).toFixed(2)}</div>
+      <div class="kvp-tile-label">Receiving Dock &amp; Inspector</div>
+      <div class="kvp-tile-value">${escapeHtml(poMatch.receiving_dock || "N/A")} — ${escapeHtml(poMatch.grn_inspector || "—")}</div>
+    </div>
+    <div class="kvp-tile">
+      <div class="kvp-tile-label">2-Way Match (PO vs Inv)</div>
+      <div class="kvp-tile-value" style="color:${twoWayStatus === "MATCHED" ? "#198038" : "#b91c1c"};">
+        ${escapeHtml(twoWayStatus)}
+      </div>
+    </div>
+    <div class="kvp-tile">
+      <div class="kvp-tile-label">3-Way Match (PO + GRN + Inv)</div>
+      <div class="kvp-tile-value" style="color:${threeWayStatus === "MATCHED" ? "#198038" : "#b91c1c"};">
+        ${escapeHtml(threeWayStatus)}
+      </div>
+    </div>
+    <div class="kvp-tile">
+      <div class="kvp-tile-label">GRN Accepted Subtotal</div>
+      <div class="kvp-tile-value">${cur} ${Number(poMatch.grn_accepted_subtotal ?? poMatch.authorized_subtotal ?? 0).toFixed(2)}</div>
     </div>
     <div class="kvp-tile">
       <div class="kvp-tile-label">Billed Invoice Subtotal</div>
       <div class="kvp-tile-value">${cur} ${Number(poMatch.billed_subtotal || 0).toFixed(2)}</div>
     </div>
-    <div class="kvp-tile ${Math.abs(Number(poMatch.subtotal_variance || 0)) > 0.05 ? "highlight" : ""}">
-      <div class="kvp-tile-label">Net Variance</div>
-      <div class="kvp-tile-value" style="color:${
-        Math.abs(Number(poMatch.subtotal_variance || 0)) > 0.05 ? "#b91c1c" : "#198038"
-      };">
-        ${Number(poMatch.subtotal_variance || 0) >= 0 ? "+" : ""}${cur} ${Number(poMatch.subtotal_variance || 0).toFixed(2)} (${poMatch.variance_pct || 0}%)
+    <div class="kvp-tile ${Math.abs(grnVariance) > 0.05 ? "highlight" : ""}">
+      <div class="kvp-tile-label">3-Way Net Variance (vs GRN)</div>
+      <div class="kvp-tile-value" style="color:${Math.abs(grnVariance) > 0.05 ? "#b91c1c" : "#198038"};">
+        ${grnVariance >= 0 ? "+" : ""}${cur} ${grnVariance.toFixed(2)} (${poMatch.grn_variance_pct ?? poMatch.variance_pct ?? 0}%)
       </div>
     </div>
   `;
 
+  // Render Step PO Schedule & Milestone Drawdown Tracker
+  const stepPo = poMatch.step_po;
+  if (!stepPo || !stepPo.steps) {
+    stepPoSection.innerHTML = "";
+  } else {
+    const hasBreach = (stepPo.steps || []).some((s) =>
+      ["STEP_CEILING_BREACH", "LOCKED_MILESTONE_VIOLATION"].includes(s.status)
+    );
+    const overallStatus = hasBreach ? "STEP_GATE_HOLD" : "STEP_VERIFIED";
+    const overallStatusColor = !hasBreach
+      ? "background:#defbe6;color:#198038;"
+      : "background:#fee2e2;color:#b91c1c;";
+    const totalCap = Number(stepPo.total_contract_ceiling || 0);
+    const totalDrawn = (stepPo.steps || []).reduce((acc, s) => acc + Number(s.billed_amount || 0), 0);
+    const totalUtilPct = totalCap > 0 ? ((totalDrawn / totalCap) * 100).toFixed(1) : "100.0";
+
+    const stepsHtml = (stepPo.steps || [])
+      .map((s) => {
+        const isCurrent = s.step_number === stepPo.current_step_number;
+        const isBreach = ["STEP_CEILING_BREACH", "LOCKED_MILESTONE_VIOLATION"].includes(s.status);
+        const badgeStyle =
+          s.status === "COMPLETED_CLOSED"
+            ? "background:#e0f2fe;color:#0369a1;"
+            : s.status === "ACTIVE_VERIFIED"
+            ? "background:#defbe6;color:#198038;"
+            : isBreach
+            ? "background:#fee2e2;color:#b91c1c;"
+            : "background:#f1f5f9;color:#475569;";
+        const barColor = isBreach
+          ? "#da1e28"
+          : s.status === "COMPLETED_CLOSED"
+          ? "#0284c7"
+          : "#198038";
+        return `
+          <div class="step-card ${isCurrent ? "active-step" : ""} ${isBreach ? "breach-step" : ""}">
+            <div class="step-card-header">
+              <span class="step-num-badge">Step ${s.step_number}${isCurrent ? " • CURRENT BILLING" : ""}</span>
+              <span class="badge-tag" style="${badgeStyle}">${escapeHtml(s.status)}</span>
+            </div>
+            <div class="step-card-title">${escapeHtml(s.title)}</div>
+            <div class="step-card-gate">Gate Sign-off: <strong>${escapeHtml(s.gate_requirement)}</strong></div>
+            <div class="step-progress-track">
+              <div class="step-progress-fill" style="width:${Math.min(100, s.utilization_pct || 0)}%;background:${barColor};"></div>
+            </div>
+            <div class="step-card-metrics">
+              <span>Utilized: <strong>${cur} ${Number(s.billed_amount || 0).toFixed(2)}</strong> (${s.utilization_pct}%)</span>
+              <span>Step Cap: <strong>${cur} ${Number(s.step_limit || 0).toFixed(2)}</strong></span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    stepPoSection.innerHTML = `
+      <div class="step-po-header">
+        <div>
+          <h4>Step PO Phased Milestone &amp; Drawdown Tracker — ${escapeHtml(stepPo.contract_master_id || "MSA")} (${escapeHtml(stepPo.po_type_label || stepPo.po_type)})</h4>
+          <p>Active Tranche: <strong>${escapeHtml(stepPo.current_step_name || "Step 1")}</strong> • Prior Billed: ${cur} ${Number(stepPo.prior_billed_amount || 0).toLocaleString()}</p>
+        </div>
+        <div class="step-po-meta">
+          <span class="badge-tag" style="${overallStatusColor}">Step Gate: ${overallStatus}</span>
+          <span class="badge-tag">Total Contract Cap: ${cur} ${totalCap.toLocaleString()} (${totalUtilPct}% drawn)</span>
+        </div>
+      </div>
+      <div class="step-cards-grid">${stepsHtml}</div>
+    `;
+  }
+
+  // Render 11-column 3-Way Match Matrix
   const lines = poMatch.line_comparisons || [];
   if (lines.length === 0) {
-    poLinesTbody.innerHTML = `<tr><td colspan="10" class="empty-cell">No Purchase Order line-item baseline applicable for this document.</td></tr>`;
+    poLinesTbody.innerHTML = `<tr><td colspan="11" class="empty-cell">No Purchase Order / GRN line-item baseline applicable for this document.</td></tr>`;
     return;
   }
 
   poLinesTbody.innerHTML = lines
     .map((l) => {
-      const badgeColor =
-        l.status === "MATCHED"
+      const twoWayStr = l.two_way_status || l.status || "MATCHED";
+      const threeWayStr = l.three_way_status || l.status || "3-WAY VERIFIED";
+      const twoWayBadge =
+        twoWayStr === "2-WAY OK" || twoWayStr === "MATCHED"
           ? "background:#defbe6;color:#198038;"
           : "background:#fee2e2;color:#b91c1c;";
+      const threeWayBadge =
+        threeWayStr === "3-WAY VERIFIED" || l.status === "MATCHED"
+          ? "background:#defbe6;color:#198038;"
+          : "background:#fee2e2;color:#b91c1c;";
+      const grnQty = l.grn_qty ?? l.grn_accepted_qty ?? l.po_qty;
+      const grnAmt = l.grn_amount ?? l.grn_accepted_amount ?? l.po_amount;
+      const grnQtyMismatch = Math.abs(Number(l.inv_qty) - Number(grnQty)) > 0.01;
       return `
         <tr>
           <td>#${l.line_index}</td>
-          <td><strong>${escapeHtml(l.invoice_description)}</strong></td>
+          <td>
+            <strong>${escapeHtml(l.invoice_description)}</strong>
+            ${l.grn_note ? `<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">Dock Note: ${escapeHtml(l.grn_note)}</div>` : ""}
+          </td>
           <td>${l.po_qty}</td>
+          <td style="font-weight:700;color:${grnQtyMismatch ? "#b91c1c" : "#0369a1"};">
+            ${grnQty} ${grnQtyMismatch ? "⚠" : "✓"}
+          </td>
           <td><strong>${l.inv_qty}</strong></td>
           <td>${cur} ${Number(l.po_unit_price).toFixed(2)}</td>
           <td>${cur} ${Number(l.inv_unit_price).toFixed(2)}</td>
-          <td>${cur} ${Number(l.po_amount).toFixed(2)}</td>
+          <td>${cur} ${Number(grnAmt).toFixed(2)}</td>
           <td><strong>${cur} ${Number(l.inv_amount).toFixed(2)}</strong></td>
-          <td style="font-weight:700;color:${Math.abs(l.delta_amount) > 0.05 ? "#b91c1c" : "#198038"};">
-            ${l.delta_amount >= 0 ? "+" : ""}${cur} ${Number(l.delta_amount).toFixed(2)}
-          </td>
-          <td><span class="badge-tag" style="${badgeColor}">${escapeHtml(l.status)}</span></td>
+          <td><span class="badge-tag" style="${twoWayBadge}">${escapeHtml(twoWayStr)}</span></td>
+          <td><span class="badge-tag" style="${threeWayBadge}">${escapeHtml(threeWayStr)}</span></td>
         </tr>
       `;
     })
     .join("");
+}
+
+function renderApAutomationTab(inv, apAuto, poMatch) {
+  if (!apAuto || !apAuto.strategy) {
+    apAutoBanner.innerHTML = "AP Payment Automation telemetry unavailable for this document.";
+    apWaterfallGrid.innerHTML = "";
+    apJournalTbody.innerHTML = `<tr><td colspan="5" class="empty-cell">No GL entries generated.</td></tr>`;
+    return;
+  }
+
+  const cur = apAuto.currency || inv.currency || "USD";
+  const strat = apAuto.strategy;
+  const dmDeduction = Number(apAuto.debit_memo_deduction ?? apAuto.debit_memo_total_deduction ?? 0);
+  const hasDebitMemo = dmDeduction > 0;
+  const grossBilled = Number(apAuto.gross_billed_total ?? apAuto.billed_gross_total ?? inv.total_amount ?? 0);
+  const verifiedGross = Number(apAuto.verified_gross_payable ?? apAuto.approved_gross_payable ?? grossBilled);
+  const earlySavings = Number(apAuto.early_discount_savings ?? apAuto.early_payment_discount_savings ?? 0);
+  const finalNet = Number(apAuto.final_net_settlement ?? apAuto.net_early_payment_disbursement ?? verifiedGross);
+  const isSettled = inv.approval_tier === "AUTO_SHORT_PAID_DEBIT_MEMO" || inv.odoo_state === "posted";
+
+  apAutoBanner.className = `ap-auto-banner ${hasDebitMemo ? "shortpay" : "ready"}`;
+  apAutoBanner.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;opacity:0.85;">
+          Autonomous AP Settlement Strategy • Payment Rail: ${escapeHtml(apAuto.payment_method || "Automated ACH / ISO-20022 Wire")}
+        </div>
+        <div style="font-size:0.95rem;font-weight:700;margin-top:3px;">${escapeHtml(apAuto.strategy_label || strat)}</div>
+        <div style="font-size:0.82rem;margin-top:4px;">${escapeHtml(apAuto.recommendation || "")}</div>
+      </div>
+      <span class="badge-tag" style="font-size:0.8rem;padding:6px 12px;${
+        hasDebitMemo
+          ? "background:#fef3c7;color:#b45309;"
+          : "background:#defbe6;color:#198038;"
+      }">${escapeHtml(strat)}</span>
+    </div>
+  `;
+
+  apWaterfallGrid.innerHTML = `
+    <div class="ap-waterfall-card">
+      <div class="ap-wf-label">1. Vendor Billed Gross Total</div>
+      <div class="ap-wf-val">${cur} ${grossBilled.toFixed(2)}</div>
+      <div class="ap-wf-sub">Original Invoice Claim (incl. Tax)</div>
+    </div>
+    <div class="ap-waterfall-card ${hasDebitMemo ? "shortpay" : ""}">
+      <div class="ap-wf-label">2. Auto Debit Memo (Short-Pay Adjustment)</div>
+      <div class="ap-wf-val" style="color:${hasDebitMemo ? "#b91c1c" : "#64748b"};">
+        -${cur} ${dmDeduction.toFixed(2)}
+      </div>
+      <div class="ap-wf-sub">
+        ${
+          hasDebitMemo
+            ? `Ref: <strong>${escapeHtml(apAuto.debit_memo_number)}</strong> (GRN/PO Deduction + Tax Adj)`
+            : "No GRN Shortage / Price Deduction Required"
+        }
+      </div>
+    </div>
+    <div class="ap-waterfall-card">
+      <div class="ap-wf-label">3. 3-Way Verified Gross Payable</div>
+      <div class="ap-wf-val">${cur} ${verifiedGross.toFixed(2)}</div>
+      <div class="ap-wf-sub">Verified Goods/Milestone Value + Pro-Rata Tax</div>
+    </div>
+    <div class="ap-waterfall-card discount">
+      <div class="ap-wf-label">4. Early-Pay Treasury Discount (${escapeHtml(apAuto.discount_terms || "2/10 Net 30")})</div>
+      <div class="ap-wf-val" style="color:#198038;">
+        -${cur} ${earlySavings.toFixed(2)}
+      </div>
+      <div class="ap-wf-sub">
+        ${
+          earlySavings > 0
+            ? `${apAuto.discount_pct}% Treasury Yield (${apAuto.annualized_yield_apr || 36.7}% Annualized ROI)`
+            : "Standard Net 30 Terms (0% Early Discount)"
+        }
+      </div>
+    </div>
+    <div class="ap-waterfall-card final">
+      <div class="ap-wf-label">5. Final Net AP Disbursement (Early-Pay Window)</div>
+      <div class="ap-wf-val" style="color:#0f62fe;">
+        ${cur} ${finalNet.toFixed(2)}
+      </div>
+      <div class="ap-wf-sub">Net 30 Fallback: ${cur} ${verifiedGross.toFixed(2)}</div>
+    </div>
+  `;
+
+  apActionInfo.innerHTML = `
+    <strong>Automated AP Settlement &amp; Odoo ERP Posting:</strong>
+    ${
+      isSettled
+        ? `Executed! Bill is posted in Odoo ERP (${escapeHtml(inv.approval_tier)}).`
+        : hasDebitMemo
+        ? `Ready to issue Debit Memo <strong>${escapeHtml(apAuto.debit_memo_number)}</strong> (-${cur} ${dmDeduction.toFixed(
+            2
+          )}) and post short-paid settlement of <strong>${cur} ${finalNet.toFixed(2)}</strong> to Odoo ERP.`
+        : `Ready to capture ${escapeHtml(apAuto.discount_terms)} discount and post <strong>${cur} ${finalNet.toFixed(
+            2
+          )}</strong> payment run to Odoo ERP.`
+    }
+  `;
+
+  executeApRunBtn.disabled = false;
+  executeApRunBtn.innerHTML = isSettled
+    ? "&#10003; Re-Sync AP Settlement &amp; Debit Memo in Odoo"
+    : hasDebitMemo
+    ? `&#9889; Issue Debit Memo (${escapeHtml(apAuto.debit_memo_number)}) &amp; Execute Short-Pay in Odoo`
+    : "&#9889; Execute Automated AP Payment Run &amp; Post to Odoo";
+
+  const entries = apAuto.journal_entries || [];
+  if (entries.length === 0) {
+    apJournalTbody.innerHTML = `<tr><td colspan="5" class="empty-cell">No GL postings generated.</td></tr>`;
+  } else {
+    apJournalTbody.innerHTML = entries
+      .map((j) => {
+        const eType = j.type || j.entry_type || "DEBIT";
+        const typeBadge =
+          eType === "DEBIT"
+            ? "background:#e0f2fe;color:#0369a1;"
+            : eType === "CREDIT"
+            ? "background:#defbe6;color:#198038;"
+            : "background:#fef3c7;color:#b45309;";
+        return `
+          <tr>
+            <td><strong>${escapeHtml(j.account_code || j.gl_code)}</strong></td>
+            <td>
+              ${escapeHtml(j.account_name)}
+              ${j.memo ? `<div style="font-size:0.72rem;color:#64748b;">${escapeHtml(j.memo)}</div>` : ""}
+            </td>
+            <td><span class="badge-tag" style="${typeBadge}">${escapeHtml(eType)}</span></td>
+            <td>${j.debit > 0 ? `<strong>${cur} ${Number(j.debit).toFixed(2)}</strong>` : "—"}</td>
+            <td>${j.credit > 0 ? `<strong>${cur} ${Number(j.credit).toFixed(2)}</strong>` : "—"}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
 }
 
 function renderRiskShieldTab(inv, riskShield) {
@@ -923,6 +1193,67 @@ disputeForm.addEventListener("submit", async (e) => {
 });
 
 // ============================================================================
+// 3-WAY GRN / STEP PO SCENARIO SIMULATOR & AUTOMATED AP PAYMENT RUN
+// ============================================================================
+document.querySelectorAll(".btn-sim").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!state.activeInvoice) return;
+    const inv = state.activeInvoice;
+    const mode = btn.dataset.sim || "normal";
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/simulate-3way`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Simulation failed");
+      await refreshInvoicesList(inv.id);
+    } catch (err) {
+      alert(`3-Way Scenario Error: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
+
+if (executeApRunBtn) {
+  executeApRunBtn.addEventListener("click", async () => {
+    if (!state.activeInvoice) return;
+    const inv = state.activeInvoice;
+    executeApRunBtn.disabled = true;
+    executeApRunBtn.textContent = "Executing Automated AP Run & Syncing Odoo GL...";
+
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/execute-ap-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply_early_discount: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "AP Payment Run failed");
+
+      await refreshInvoicesList(inv.id);
+      const ap = data.ap_settlement || {};
+      const dmText = ap.debit_memo_issued
+        ? `\n• Auto Debit Memo Issued: ${ap.debit_memo_issued} (-${inv.currency} ${Number(ap.debit_memo_deduction || 0).toFixed(2)})`
+        : "";
+      alert(
+        `Automated AP Payment Run Executed & Posted to Odoo Cloud ERP!\n` +
+          `• Odoo Bill: #${data.odoo_bill?.id || "N/A"} (${data.odoo_bill?.name || "POSTED"})${dmText}\n` +
+          `• Early-Pay Treasury Discount Saved: ${inv.currency} ${Number(ap.early_discount_saved || 0).toFixed(2)}\n` +
+          `• Final Net Wire/ACH Disbursement: ${inv.currency} ${Number(ap.net_disbursed || 0).toFixed(2)}`
+      );
+    } catch (err) {
+      alert(`AP Payment Run Error: ${err.message}`);
+      executeApRunBtn.disabled = false;
+      executeApRunBtn.innerHTML = "&#9889; Execute Automated AP Payment Run &amp; Post to Odoo";
+    }
+  });
+}
+
+// ============================================================================
 // SQLITE TABLE RENDERING
 // ============================================================================
 function renderSqliteTable() {
@@ -935,12 +1266,17 @@ function renderSqliteTable() {
   sqliteInvoicesTbody.innerHTML = state.invoices
     .map((inv) => {
       const isSelected = state.activeInvoice && state.activeInvoice.id === inv.id;
-      const poStatus = inv.audit?.po_match?.status || "MATCHED";
+      const poMatch = inv.audit?.po_match || {};
+      const poStatus = poMatch.status || "MATCHED";
+      const twoWay = poMatch.two_way_status || poStatus;
+      const threeWay = poMatch.three_way_status || poStatus;
       const poBadge =
         poStatus === "MATCHED"
-          ? `<span class="badge-tag" style="background:#defbe6;color:#198038;">2-Way Matched</span>`
+          ? `<span class="badge-tag" style="background:#defbe6;color:#198038;">3-Way Matched</span>`
+          : twoWay === "MATCHED" && threeWay === "VARIANCE_DETECTED"
+          ? `<span class="badge-tag" style="background:#fef3c7;color:#b45309;">3-Way GRN Shortage</span>`
           : poStatus === "VARIANCE_DETECTED"
-          ? `<span class="badge-tag" style="background:#fee2e2;color:#b91c1c;">PO Variance</span>`
+          ? `<span class="badge-tag" style="background:#fee2e2;color:#b91c1c;">PO/GRN Variance</span>`
           : `<span class="badge-tag" style="background:#f1f5f9;color:#475569;">${escapeHtml(poStatus)}</span>`;
 
       const rScore = inv.audit?.risk_shield?.risk_score ?? 5;
@@ -955,6 +1291,8 @@ function renderSqliteTable() {
           ? `<span style="color:#b28600;font-weight:600;">VP Review</span>`
           : tier === "REJECTED_DISPUTED" || tier === "FLAGGED_MATH_MISMATCH"
           ? `<span style="color:#da1e28;font-weight:600;">${escapeHtml(tier)}</span>`
+          : tier === "AUTO_SHORT_PAID_DEBIT_MEMO"
+          ? `<span style="color:#0369a1;font-weight:700;">Short-Paid (DM)</span>`
           : tier === "APPROVED_BY_VP"
           ? `<span style="color:#0f62fe;font-weight:700;">VP Approved</span>`
           : `<span style="color:#198038;font-weight:600;">Auto-OK</span>`;

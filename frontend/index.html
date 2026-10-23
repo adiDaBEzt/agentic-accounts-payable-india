@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IBM watsonx Orchestrate — Enterprise AP &amp; Multi-Document IDP Command Center</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20261022_v10" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261023_v11" />
 </head>
 <body>
   <header class="topbar">
@@ -13,7 +13,7 @@
       <div>
         <h1>IBM watsonx Orchestrate — Enterprise AP &amp; IDP Command Center</h1>
         <p class="subtitle">
-          Multi-Channel Ingestion &rarr; S3/COS (<code>/v1/orchestrate/upload-to-s3</code>) &rarr; WDU <code>docproc</code> + 2-Way PO Match + Fraud Shield &rarr; HITL Workbench &amp; Odoo ERP
+          Multi-Channel Ingestion &rarr; S3/COS (<code>/v1/orchestrate/upload-to-s3</code>) &rarr; WDU <code>docproc</code> + 3-Way Match &amp; Step POs + AP Payment Automation &rarr; Odoo ERP
         </p>
       </div>
     </div>
@@ -221,7 +221,10 @@
               &#128269; Visual Grounding &amp; Fields
             </button>
             <button type="button" class="wb-tab" data-tab="tabPoMatching" role="tab" aria-selected="false">
-              &#9878; 2-Way PO Match <span class="tab-pill" id="tabPoStatusPill">MATCHED</span>
+              &#9878; 3-Way Match &amp; Step POs <span class="tab-pill" id="tabPoStatusPill">3-WAY OK</span>
+            </button>
+            <button type="button" class="wb-tab" data-tab="tabApAutomation" role="tab" aria-selected="false">
+              &#128179; AP Automation &amp; Payment Run <span class="tab-pill" id="tabApAutoPill">STP READY</span>
             </button>
             <button type="button" class="wb-tab" data-tab="tabRiskShield" role="tab" aria-selected="false">
               &#128737; Fraud &amp; Compliance Shield <span class="tab-pill" id="tabRiskScorePill">5/100</span>
@@ -278,26 +281,51 @@
             </div>
           </div>
 
-          <!-- TAB 2: AUTOMATED 2-WAY PO VS INVOICE RECONCILIATION MATRIX -->
+          <!-- TAB 2: AUTOMATED 2-WAY & 3-WAY PO + WAREHOUSE GRN + STEP PO MATRIX -->
           <div class="wb-tab-panel" id="tabPoMatching" hidden>
+            <!-- Interactive 3-Way GRN & Step PO Simulator Bar -->
+            <div class="sim-toolbar" id="threeWaySimToolbar">
+              <div class="sim-toolbar-label">
+                <strong>&#9881; Interactive 3-Way GRN &amp; Step PO Scenario Lab:</strong>
+                <span>Test how 3-Way Matching catches warehouse dock shortages even when 2-Way PO matching passes</span>
+              </div>
+              <div class="sim-toolbar-buttons">
+                <button type="button" class="btn-sim active" data-sim-mode="normal" id="simBtnNormal">
+                  &#9989; Baseline ERP + GRN
+                </button>
+                <button type="button" class="btn-sim" data-sim-mode="grn_shortage" id="simBtnShortage">
+                  &#128230; Simulate GRN Dock Shortage (-1 Unit)
+                </button>
+                <button type="button" class="btn-sim" data-sim-mode="step_locked" id="simBtnStepLocked">
+                  &#128274; Simulate Locked Step PO Gate
+                </button>
+              </div>
+            </div>
+
             <div class="po-summary-banner" id="poSummaryBanner"></div>
             <div class="po-kpi-strip" id="poKpiStrip"></div>
+
+            <!-- Step PO Milestone & Drawdown Schedule Section -->
+            <div class="step-po-section" id="stepPoSection" style="margin-top: 14px;"></div>
+
+            <!-- 3-Way Line-by-Line Matrix (PO vs Warehouse GRN vs Invoice) -->
             <div class="subtable-section" style="margin-top: 14px;">
-              <h3>Line-by-Line Purchase Order vs. Billed Invoice Variance Matrix</h3>
+              <h3>3-Way Line-Item Reconciliation Matrix (Purchase Order &harr; Warehouse GRN &harr; Vendor Invoice)</h3>
               <div class="table-scroll">
                 <table class="data-table">
                   <thead>
                     <tr>
                       <th>Line</th>
-                      <th>Item / Service Description</th>
+                      <th>Item / Service Description &amp; Warehouse GRN Note</th>
                       <th>PO Auth Qty</th>
+                      <th>GRN Rcvd Qty</th>
                       <th>Billed Qty</th>
                       <th>PO Unit Price</th>
-                      <th>Billed Unit Price</th>
-                      <th>PO Line Total</th>
-                      <th>Billed Line Total</th>
-                      <th>Delta ($)</th>
-                      <th>Audit Status</th>
+                      <th>Billed Price</th>
+                      <th>GRN Accepted ($)</th>
+                      <th>Billed Total ($)</th>
+                      <th>2-Way (PO)</th>
+                      <th>3-Way (GRN)</th>
                     </tr>
                   </thead>
                   <tbody id="poLinesTbody"></tbody>
@@ -306,7 +334,39 @@
             </div>
           </div>
 
-          <!-- TAB 3: FRAUD, DUPLICATE & SPLIT-INVOICE RISK SHIELD -->
+          <!-- TAB 3: ACCOUNTS PAYABLE (AP) AUTOMATION, SHORT-PAY DEBIT MEMO & PAYMENT RUN -->
+          <div class="wb-tab-panel" id="tabApAutomation" hidden>
+            <div class="ap-auto-banner" id="apAutoBanner"></div>
+            <div class="ap-waterfall-grid" id="apWaterfallGrid"></div>
+
+            <div class="ap-action-bar" id="apActionBar">
+              <div class="ap-action-info" id="apActionInfo"></div>
+              <button type="button" class="btn-primary" id="executeApRunBtn" style="width: auto; padding: 10px 20px;">
+                &#9889; Execute Automated AP Payment Run &amp; Sync Odoo ERP
+              </button>
+            </div>
+
+            <div class="subtable-section" style="margin-top: 14px;">
+              <h3>Automated Double-Entry General Ledger (GL) Posting &amp; Treasury Split Preview</h3>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>GL Account Code</th>
+                      <th>Ledger Account Name</th>
+                      <th>Entry Type</th>
+                      <th>Debit ($)</th>
+                      <th>Credit ($)</th>
+                      <th>Automated Audit &amp; Treasury Memo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="apJournalTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 4: FRAUD, DUPLICATE & SPLIT-INVOICE RISK SHIELD -->
           <div class="wb-tab-panel" id="tabRiskShield" hidden>
             <div class="risk-overview-header" id="riskOverviewHeader"></div>
             <div class="risk-checks-grid" id="riskChecksGrid"></div>
@@ -333,7 +393,7 @@
                 <th>Reference #</th>
                 <th>Vendor / Merchant</th>
                 <th>Total</th>
-                <th>2-Way PO Match</th>
+                <th>3-Way &amp; Step PO</th>
                 <th>Risk</th>
                 <th>Approval Tier</th>
                 <th>Odoo ERP Status</th>
@@ -525,6 +585,6 @@
     }, 0);
   </script>
 
-  <script src="/static/app.js?v=20261022_v10"></script>
+  <script src="/static/app.js?v=20261023_v11"></script>
 </body>
 </html>

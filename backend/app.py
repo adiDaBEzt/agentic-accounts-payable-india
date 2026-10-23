@@ -20,7 +20,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.assistant_engine import process_chat_message
-from backend.audit_engine import compute_cfo_analytics, evaluate_invoice_audit
+from backend.audit_engine import (
+    compute_cfo_analytics,
+    evaluate_invoice_audit,
+    set_simulation_override,
+)
 from backend.database import (
     delete_invoice_by_id,
     get_invoice_by_id,
@@ -285,6 +289,129 @@ def api_dispute_invoice(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send dispute email: {str(e)}")
+
+
+@app.post("/api/invoices/{invoice_id}/simulate-3way")
+def api_simulate_3way_scenario(
+    invoice_id: int,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Interactive 3-Way Match & Step PO scenario simulator:
+      Modes:
+        - 'normal': Restore baseline ERP PO + Warehouse GRN state
+        - 'grn_shortage': Simulate 1 unit backordered/damaged on Warehouse GRN (2-Way passes, 3-Way catches shortage!)
+        - 'step_locked': Simulate Step PO Milestone UAT Gate locked in ERP
+    """
+    inv = get_invoice_by_id(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    mode = (payload.get("mode") or "normal").strip()
+    set_simulation_override(invoice_id, mode)
+    all_invs = list_invoices(limit=100)
+    return {
+        "status": "success",
+        "simulation_mode": mode,
+        "invoice": _enrich_invoice_with_audit(dict(inv), all_invs),
+    }
+
+
+@app.post("/api/invoices/{invoice_id}/execute-ap-run")
+def api_execute_ap_payment_run(
+    invoice_id: int,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+):
+    """
+    Automated Accounts Payable (AP) Payment & Settlement Run:
+      1. Evaluates 3-Way PO + GRN Match and Step PO ceiling
+      2. If a 2-Way or 3-Way variance exists, automatically issues a Debit Memo (DM-...) and adjusts the bill to the 3-Way Verified Net Payable amount (Auto Short-Pay)
+      3. Captures early payment treasury discount (e.g., 2/10 Net 30)
+      4. Creates & Posts the adjusted Vendor Bill in Odoo Cloud ERP via XML-RPC
+    """
+    inv = get_invoice_by_id(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    all_invs = list_invoices(limit=100)
+    audit = evaluate_invoice_audit(inv, all_invs)
+    ap_auto = audit.get("ap_automation", {})
+    po_match = audit.get("po_match", {})
+
+    debit_memo_num = ap_auto.get("debit_memo_number")
+    debit_deduction = float(ap_auto.get("debit_memo_deduction") or 0.0)
+    early_savings = float(ap_auto.get("early_discount_savings") or 0.0)
+    final_settlement = float(ap_auto.get("final_net_settlement") or inv.get("total_amount") or 0.0)
+    verified_payable = float(ap_auto.get("verified_gross_payable") or inv.get("total_amount") or 0.0)
+    curr = inv.get("currency", "USD")
+
+    try:
+        bill_id = inv.get("odoo_bill_id")
+        odoo_url = inv.get("odoo_url") or ""
+        ap_note = (
+            f"AP Automation Settlement Run: Strategy={ap_auto.get('strategy')} | "
+            f"3-Way GRN={po_match.get('grn_number')} | "
+            f"Debit Memo={debit_memo_num or 'None'} (-{curr} {debit_deduction:.2f}) | "
+            f"Early Pay Savings=-{curr} {early_savings:.2f} | "
+            f"Net Disbursed={curr} {final_settlement:.2f}"
+        )
+
+        if not bill_id:
+            created_bill = odoo_client.create_vendor_bill(
+                invoice_number=inv["invoice_number"],
+                vendor_name=inv["vendor_name"],
+                invoice_date=inv.get("invoice_date", ""),
+                due_date=inv.get("due_date", ""),
+                currency=curr,
+                line_items=inv.get("line_items", []),
+                notes=ap_note,
+            )
+            bill_id = created_bill["id"]
+            odoo_url = created_bill.get("odoo_url", "")
+
+        posted_bill = odoo_client.post_vendor_bill(
+            int(bill_id), fallback_date=inv.get("invoice_date") or "2026-10-21"
+        )
+        odoo_state = posted_bill.get("state", "posted")
+        bill_seq_name = posted_bill.get("name", f"BILL #{bill_id}")
+
+        new_tier = "AUTO_SHORT_PAID_DEBIT_MEMO" if debit_deduction > 0 else "APPROVED_BY_VP"
+        existing_notes = inv.get("validation_notes") or ""
+        if debit_deduction > 0:
+            action_tag = (
+                f"[AP AUTO SHORT-PAY & DEBIT MEMO {debit_memo_num}: Deducted {curr} {debit_deduction:.2f} "
+                f"unreceived/variance, Posted {bill_seq_name} @ {curr} {verified_payable:.2f}, "
+                f"Net Wire {curr} {final_settlement:.2f}]"
+            )
+        else:
+            action_tag = (
+                f"[AP PAYMENT RUN EXECUTED: {bill_seq_name} Posted, Early-Pay Discount -{curr} {early_savings:.2f}, "
+                f"Net Wire {curr} {final_settlement:.2f}]"
+            )
+
+        updated_notes = f"{existing_notes} | {action_tag}".strip(" |")
+        updated_inv = update_invoice_workflow(
+            invoice_id=invoice_id,
+            approval_tier=new_tier,
+            validation_notes=updated_notes,
+            odoo_bill_id=int(bill_id),
+            odoo_url=odoo_url,
+            odoo_state=odoo_state,
+        )
+        all_invs_after = list_invoices(limit=100)
+        return {
+            "status": "success",
+            "ap_settlement_summary": action_tag,
+            "ap_settlement": {
+                "debit_memo_issued": debit_memo_num,
+                "debit_memo_deduction": debit_deduction,
+                "early_discount_saved": early_savings,
+                "net_disbursed": final_settlement,
+            },
+            "odoo_bill": posted_bill,
+            "invoice": _enrich_invoice_with_audit(updated_inv, all_invs_after),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AP Payment Run error: {str(e)}")
 
 
 @app.get("/api/analytics")

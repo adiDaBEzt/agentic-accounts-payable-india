@@ -196,6 +196,47 @@ VARIANCE_INVOICE_TEMPLATES = [
         "tax_amount": "1200.00",
         "total_amount": "16200.00",
     },
+    {
+        "filename": "invoice_titan_hypercompute_7731.png",
+        "pdf_filename": "invoice_titan_hypercompute_7731.pdf",
+        "subfolder": "variance_invoices",
+        "category": "Variance Invoices (PO Exceptions & Review)",
+        "vendor_name": "Titan Hypercompute Systems LLC",
+        "vendor_address": "2200 Innovation Drive, Austin, TX 78758",
+        "vendor_email": "billing@titancompute.io | EIN: 74-9928172",
+        "invoice_number": "INV-2026-7731",
+        "invoice_date": "2026-10-22",
+        "due_date": "2026-11-21",
+        "po_number": "PO-2026-7731",
+        "payment_terms": "2/10 Net 30",
+        "currency": "USD",
+        "buyer_name": "Alpha Global Systems Ltd.",
+        "buyer_address": "100 Data Center Way, Santa Clara, CA 95054",
+        "line_items": [
+            {
+                "description": "Enterprise AI Compute Blade Server (Dual Xeon / 8x GPU)",
+                "quantity": "1",
+                "unit_price": "9800.00",
+                "amount": "9800.00",
+            },
+            {
+                "description": "100GbE QSFP28 Optical Network Transceiver Pack",
+                "quantity": "4",
+                "unit_price": "650.00",
+                "amount": "2600.00",
+            },
+            {
+                "description": "24/7 Mission-Critical Support & Hardware Warranty (1 Yr)",
+                "quantity": "1",
+                "unit_price": "2350.00",
+                "amount": "2350.00",
+            },
+        ],
+        "subtotal_amount": "14750.00",
+        "tax_label": "Sales Tax (8%)",
+        "tax_amount": "1180.00",
+        "total_amount": "15930.00",
+    },
 ]
 
 # 3. Purchase Orders (Authoritative PO Catalog)
