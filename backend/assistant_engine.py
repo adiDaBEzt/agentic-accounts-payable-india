@@ -136,6 +136,59 @@ def process_chat_message(user_message: str, history: Optional[List[Dict[str, str
 
     # 2. LIVE ODOO QUERIES
     if re.search(r"\b(?:odoo|vendor bills?|bill status|erp)\b", msg_lower):
+        # Check if user wants to post or approve a bill
+        post_match = re.search(r"(?:post|approve)\s+(?:bill|invoice)?\s*#?\s*(\d+)", msg_lower)
+        if post_match and "how" not in msg_lower and "can you" in msg_lower or post_match and "post" in msg_lower.split():
+            bill_id = int(post_match.group(1))
+            try:
+                posted = odoo_client.post_vendor_bill(bill_id)
+                # Find matching invoice in sqlite to update state
+                for inv in invoices:
+                    if inv.get("odoo_bill_id") == bill_id:
+                        update_invoice_workflow(inv["id"], approval_tier="APPROVED_BY_VP", odoo_state="posted")
+                return {
+                    "reply": f"**Successfully posted Vendor Bill #{bill_id} in Odoo Cloud ERP!**\n\n"
+                             f"- **Official Sequence:** `{posted.get('name', 'N/A')}`\n"
+                             f"- **Accounting State:** `posted` (General Ledger Finalized)\n"
+                             f"- **Amount:** `${posted.get('amount_total', 0):,.2f}`\n"
+                             f"- **Direct Odoo URL:** [{posted.get('name', 'Bill Link')}]({posted.get('odoo_url', '#')})",
+                    "action_taken": "odoo_post",
+                    "bill_id": bill_id,
+                }
+            except Exception as e:
+                return {
+                    "reply": f"Attempted to post Bill #{bill_id} in Odoo, but encountered an error: `{str(e)}`",
+                    "error": str(e),
+                }
+
+        # General Odoo bills fetch
+        try:
+            bills = odoo_client.list_vendor_bills(limit=8)
+            posted_count = sum(1 for b in bills if b.get("state") == "posted")
+            draft_count = sum(1 for b in bills if b.get("state") == "draft")
+            
+            bill_rows = []
+            for b in bills:
+                state_badge = "**POSTED**" if b.get("state") == "posted" else "*draft*"
+                seq = b.get("name") if b.get("name") and b.get("name") != False else f"Bill #{b['id']}"
+                ref = b.get("ref") or "No Ref"
+                amt = f"${b.get('amount_total', 0):,.2f}"
+                date = b.get("invoice_date") or "N/A"
+                bill_rows.append(f"| #{b['id']} | [{seq}]({b.get('odoo_url', '#')}) | {ref} | {amt} | {state_badge} | {date} |")
+
+            table_str = "\n".join(bill_rows)
+            return {
+                "reply": f"Here is the live synchronization status from **Odoo Cloud ERP** (`https://invoiceprocessing.odoo.com`):\n\n"
+                         f"📊 **Summary:** {len(bills)} total bills fetched ({posted_count} posted, {draft_count} in draft).\n\n"
+                         f"| ID | Sequence / Record | Invoice Ref | Amount | State | Date |\n"
+                         f"|:---|:---|:---|:---|:---|:---|\n"
+                         f"{table_str}\n\n"
+                         f"*Tip: You can say 'Approve and post bill #6' or click any bill link to view it in Odoo.*",
+                "data_type": "odoo_bills",
+                "count": len(bills),
+            }
+        except Exception as e:
+            return {"reply": f"Could not connect to Odoo XML-RPC API: `{str(e)}`"}
 
     # 3. CFO SPEND, GL BREAKDOWN & ANALYTICS QUERIES
     if any(k in msg_lower for k in ["spend", "analytics", "cfo", "gl", "category", "categories", "total", "breakdown", "metrics", "stp", "debit memo", "discount", "treasury"]):

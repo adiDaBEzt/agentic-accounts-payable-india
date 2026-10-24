@@ -27,14 +27,15 @@ SQLITE_DB_PATH = Path(__file__).resolve().parent.parent / "invoices.db"
 def _get_database_url() -> Optional[str]:
     dsn = os.getenv("DATABASE_URL")
     if dsn:
-        return dsn
+        return dsn.strip().strip('"').strip("'")
     env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
         with open(env_file, "r") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith("DATABASE_URL="):
-                    return line.split("=", 1)[1].strip()
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    return val
     return None
 
 
