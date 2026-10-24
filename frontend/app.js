@@ -1518,6 +1518,21 @@ sqliteSearchInput?.addEventListener("input", () => renderSqliteTable());
 sqliteFilterSelect?.addEventListener("change", () => renderSqliteTable());
 sqliteRefreshBtn?.addEventListener("click", () => refreshInvoicesList());
 
+const clearAllLedgerBtn = document.getElementById("clearAllLedgerBtn");
+clearAllLedgerBtn?.addEventListener("click", async () => {
+  if (!confirm("Are you sure you want to clear all records from the Neon PostgreSQL database?\n\nThis will reset duplicate detection and start your ledger clean for new demo runs.")) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/invoices", { method: "DELETE" });
+    const data = await res.json();
+    await refreshInvoicesList();
+    showToastNotification?.("Neon Database Cleared", data.message || "All records wiped.", "info");
+  } catch (err) {
+    alert(`Error clearing database: ${err.message}`);
+  }
+});
+
 // ============================================================================
 // TAB 5 & HEADER: INTERACTIVE DEMO SCENARIO SHORTCUTS
 // ============================================================================

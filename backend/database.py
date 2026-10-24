@@ -579,3 +579,31 @@ def delete_invoice_by_id(invoice_id: int) -> bool:
         else:
             cur = db.conn.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
             return cur.rowcount > 0
+
+
+def clear_all_invoices() -> int:
+    """
+    Truncates/deletes all invoice records and associated line items from
+    both Neon Serverless PostgreSQL and local SQLite fallback.
+    Resets identity sequences so fresh uploads start clean at ID #1.
+    """
+    deleted_count = 0
+    with get_connection() as db:
+        if db.is_postgres:
+            cur = db.conn.cursor()
+            cur.execute("SELECT count(*) FROM invoices")
+            row = cur.fetchone()
+            deleted_count = row["count"] if isinstance(row, dict) else row[0]
+            cur.execute("TRUNCATE TABLE invoice_line_items, invoices RESTART IDENTITY CASCADE;")
+        else:
+            cur = db.conn.cursor()
+            cur.execute("SELECT count(*) FROM invoices")
+            row = cur.fetchone()
+            deleted_count = row[0]
+            db.conn.execute("DELETE FROM invoice_line_items;")
+            db.conn.execute("DELETE FROM invoices;")
+            try:
+                db.conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('invoices', 'invoice_line_items');")
+            except Exception:
+                pass
+    return deleted_count

@@ -26,6 +26,7 @@ from backend.audit_engine import (
     set_simulation_override,
 )
 from backend.database import (
+    clear_all_invoices,
     delete_invoice_by_id,
     get_database_status,
     get_invoice_by_id,
@@ -517,6 +518,17 @@ def api_get_invoice(invoice_id: int):
         raise HTTPException(status_code=404, detail=f"Invoice #{invoice_id} not found")
     all_records = list_invoices(limit=100)
     return _enrich_invoice_with_audit(record, all_records)
+
+
+@app.delete("/api/invoices")
+@app.post("/api/invoices/clear-all")
+def api_clear_all_invoices():
+    cleared_count = clear_all_invoices()
+    return {
+        "cleared": True,
+        "count": cleared_count,
+        "message": f"Successfully cleared {cleared_count} records from database.",
+    }
 
 
 @app.delete("/api/invoices/{invoice_id}")
