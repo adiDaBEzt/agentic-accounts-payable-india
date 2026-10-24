@@ -747,3 +747,21 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 @app.get("/")
 def serve_index():
     return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+
+@app.get("/presentation")
+@app.get("/presentation.html")
+def serve_presentation():
+    return FileResponse(str(FRONTEND_DIR / "presentation.html"))
+
+
+@app.get("/IBM_watsonx_Orchestrate_AP_Automation.pptx")
+def download_presentation_pptx():
+    pptx_path = BASE_DIR / "IBM_watsonx_Orchestrate_AP_Automation.pptx"
+    if not pptx_path.exists():
+        raise HTTPException(status_code=404, detail="Presentation file not found")
+    return FileResponse(
+        str(pptx_path),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename="IBM_watsonx_Orchestrate_AP_Automation.pptx",
+    )
