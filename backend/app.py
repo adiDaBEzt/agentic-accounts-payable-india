@@ -27,6 +27,7 @@ from backend.audit_engine import (
 )
 from backend.database import (
     delete_invoice_by_id,
+    get_database_status,
     get_invoice_by_id,
     init_db,
     list_invoices,
@@ -111,6 +112,7 @@ def health_check():
         "agent_name": "invoice_idp_agent",
         "enterprise_flow_id": "8d39e4e8-cce5-4f0c-aba9-1be467b21c9b",
         "enterprise_agent_id": "1a6a362a-db6d-4955-94ca-4a4dca99e06a",
+        "database": get_database_status(),
         "odoo": {
             "connected": True,
             "url": odoo_client.url,

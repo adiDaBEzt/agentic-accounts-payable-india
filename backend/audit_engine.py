@@ -514,14 +514,34 @@ def find_matching_po(
                 uploaded_po_rec = rec
                 break
 
-    # 2. Check Master ERP PO Registry
+    # 2. Check Master ERP PO Registry directly or by alias / vendor / invoice reference
+    matched_master_key = None
     if po_num and po_num in MASTER_ERP_POS:
+        matched_master_key = po_num
+    else:
+        for key, candidate in MASTER_ERP_POS.items():
+            norm_key = key.replace("-", "").replace(" ", "").upper()
+            norm_po = po_num.replace("-", "").replace(" ", "").upper() if po_num else ""
+            if norm_po and (norm_po == norm_key or norm_po.replace("1", "7") == norm_key.replace("1", "7")):
+                matched_master_key = key
+                break
+            cand_vendor = (candidate.get("vendor_name") or "").lower()
+            inv_vendor = (invoice.get("vendor_name") or "").lower()
+            if inv_vendor and (inv_vendor in cand_vendor or cand_vendor in inv_vendor):
+                matched_master_key = key
+                break
+            inv_num = (invoice.get("invoice_number") or "").upper()
+            if inv_num and key[-4:] in inv_num:
+                matched_master_key = key
+                break
+
+    if matched_master_key:
         import copy
-        master = copy.deepcopy(MASTER_ERP_POS[po_num])
+        master = copy.deepcopy(MASTER_ERP_POS[matched_master_key])
         if uploaded_po_rec:
             master["source"] = f"SQLite PO #{uploaded_po_rec['id']} + ERP GRN ({master['grn_number']})"
         else:
-            master["source"] = f"Master ERP PO ({po_num}) + Warehouse GRN ({master['grn_number']})"
+            master["source"] = f"Master ERP PO ({master['po_number']}) + Warehouse GRN ({master['grn_number']})"
         return master
 
     # 3. Fallback to pure SQLite uploaded PO if not in MASTER_ERP_POS

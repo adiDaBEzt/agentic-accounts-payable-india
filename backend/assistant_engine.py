@@ -158,19 +158,37 @@ def process_chat_message(user_message: str, history: Optional[List[Dict[str, str
         return {"reply": "\n".join(reply_lines)}
 
     # 3. CFO SPEND, GL BREAKDOWN & ANALYTICS QUERIES
-    if any(k in msg_lower for k in ["spend", "analytics", "cfo", "gl", "category", "categories", "total", "breakdown", "metrics", "stp"]):
+    if any(k in msg_lower for k in ["spend", "analytics", "cfo", "gl", "category", "categories", "total", "breakdown", "metrics", "stp", "debit memo", "discount", "treasury"]):
         analytics = compute_cfo_analytics(invoices)
         gl_lines = [
             f"- **{g['category']}:** ${g['amount_usd']:,.2f} USD ({g['pct']}%) across {g['count']} line items"
             for g in analytics.get("gl_breakdown", [])
         ]
+        
+        # Calculate debit memo and treasury early discount metrics from enriched invoices
+        total_debit_memos = sum(
+            inv["audit"]["ap_automation"].get("debit_memo_deduction", 0)
+            for inv in enriched_invoices
+            if inv.get("audit") and inv["audit"].get("ap_automation")
+        )
+        total_early_discounts = sum(
+            inv["audit"]["ap_automation"].get("early_discount_savings", 0)
+            for inv in enriched_invoices
+            if inv.get("audit") and inv["audit"].get("ap_automation")
+        )
+
+        from backend.database import get_database_status
+        db_stat = get_database_status()
+
         return {
             "reply": f"### Executive CFO Accounts Payable Spend Intelligence:\n\n"
                      f"- **Total AP Spend (USD):** `${analytics.get('total_spend_usd', 0):,.2f}` across {analytics.get('total_documents', 0)} documents\n"
-                     f"- **Document Mix:** {analytics.get('invoice_count', 0)} Invoices, {analytics.get('po_count', 0)} Purchase Orders, {analytics.get('receipt_count', 0)} Receipts\n"
                      f"- **Straight-Through Processing (STP) Rate:** **{analytics.get('stp_rate_pct', 0)}%** ({analytics.get('stp_auto_approved_count', 0)} auto-approved/posted)\n"
+                     f"- **Auto Debit Memo Short-Pay Deductions:** **${total_debit_memos:,.2f} USD** (prevented warehouse overbilling leakage)\n"
+                     f"- **Early-Payment Treasury Discounts:** **${total_early_discounts:,.2f} USD** captured (2/10 Net 30 = 36.7% annualized yield)\n"
                      f"- **Odoo ERP Synced Count:** {analytics.get('odoo_synced_count', 0)} / {analytics.get('total_documents', 0)} bills posted or synced\n"
-                     f"- **Average WDU OCR Confidence:** **{analytics.get('avg_confidence_pct', 0)}%**\n\n"
+                     f"- **Average WDU OCR Confidence:** **{analytics.get('avg_confidence_pct', 0)}%**\n"
+                     f"- **Enterprise Cloud Database:** `{db_stat.get('engine', 'Neon PostgreSQL')}` ({db_stat.get('database', 'neondb')})\n\n"
                      f"**General Ledger (GL) Allocation Breakdown:**\n" + "\n".join(gl_lines),
             "analytics": analytics,
         }
