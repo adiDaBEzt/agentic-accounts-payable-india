@@ -103,7 +103,9 @@ function modal({ label = "", title, body, primary, secondary = "Cancel", size = 
   const close = () => (root.innerHTML = "");
   $(".x", root).onclick = close;
   $("[data-act=cancel]", root).onclick = close;
-  $(".overlay", root).onclick = (e) => e.target.classList.contains("overlay") && close();
+  // Close on a backdrop click only. A block body: an onclick handler that returns false cancels the click,
+  // which would stop radios and the file picker inside the dialog from working.
+  $(".overlay", root).onclick = (e) => { if (e.target.classList.contains("overlay")) close(); };
   if (primary) {
     const ok = $("[data-act=ok]", root);
     ok.onclick = async () => {
@@ -300,9 +302,10 @@ async function openProcessModal(initialFiles) {
   let files = [], sample = null;
   const root = modal({
     label: "New document", title: "Process a document", size: "lg",
-    body: `<div class="dropzone" id="dz" tabindex="0" role="button"><span id="dz-text">Drag and drop files here or click to upload</span>
-        <span class="helper" id="dz-help">Invoices, receipts, PO copies or delivery challans · PDF, PNG, JPG or TIFF · several at once is fine</span></div>
-        <input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden>
+    body: `<input type="file" id="fi" class="visually-hidden" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple>
+      <label class="dropzone" id="dz" for="fi" tabindex="0"><span id="dz-text" class="dz-text">Drag and drop files here</span>
+        <span class="btn tertiary sm browse">Browse files ${icon("upload")}</span>
+        <span class="helper" id="dz-help">Invoices, receipts, PO copies or delivery challans · PDF, PNG, JPG or TIFF · several at once is fine</span></label>
       <p class="helper" style="margin-bottom:8px">Or run a sample scenario — each exercises a different document type or family of controls against the live ERP</p>
       <div class="sample-list">${Object.keys(DOC_TYPES).filter((k) => k !== "other").concat(["letter"]).map((kind) => {
         const list = samples.filter((s) => s.kind === kind); if (!list.length) return "";
@@ -335,9 +338,9 @@ async function openProcessModal(initialFiles) {
     $("#dz-help", root).textContent = `${files.length > 1 ? files.map((f) => f.name).join(", ") + " · " : ""}${kb.toFixed(0)} KB · click to change`;
     dz.classList.add("has-file");
   };
-  dz.onclick = () => fi.click();
-  dz.onkeydown = (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), fi.click());
-  fi.onchange = () => fi.files.length && pick(fi.files);
+  // The drop zone is a <label for="fi">, so the browser opens the file picker itself on click.
+  dz.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); } };
+  fi.onchange = () => { if (fi.files.length) pick(fi.files); fi.value = ""; };
   // The whole dialog accepts the drop, so a near miss doesn't open the file in the browser.
   const modalEl = $(".modal", root);
   let depth = 0;
@@ -349,7 +352,7 @@ async function openProcessModal(initialFiles) {
   if (initialFiles?.length) pick(initialFiles);
   $$("input[name=sample]", root).forEach((r) => (r.onchange = () => {
     sample = r.value; files = [];
-    $("#dz-text", root).textContent = "Drag and drop files here or click to upload"; dz.classList.remove("has-file");
+    $("#dz-text", root).textContent = "Drag and drop files here"; dz.classList.remove("has-file");
     $$(".sample", root).forEach((s) => s.classList.toggle("selected", s.dataset.file === sample));
   }));
 }

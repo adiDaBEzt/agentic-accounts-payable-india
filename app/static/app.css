@@ -385,3 +385,10 @@ textarea.input { padding: 11px 16px; min-height: 160px; resize: vertical; line-h
 table.data td.nowrap { white-space: nowrap; }
 .dropzone.has-file { border-style: solid; color: var(--cds-text-primary); }
 .dropzone svg { vertical-align: -3px; margin-right: 4px; fill: currentColor; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+.dropzone { display: block; }
+.dropzone .browse { display: inline-flex; margin: 12px auto 0; pointer-events: none; }
+.dropzone .helper { margin-top: 8px; }
+.dropzone:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+.dropzone .dz-text { display: block; }
+.dropzone .browse { display: flex; width: max-content; }
