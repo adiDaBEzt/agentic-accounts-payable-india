@@ -380,3 +380,6 @@ textarea.input { padding: 11px 16px; min-height: 160px; resize: vertical; line-h
 .msg .who a.tag { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
 .msg .who a.tag svg { fill: currentColor; }
 @media (max-width: 800px) { .pipeline.gov { grid-template-columns: minmax(0, 1fr); } }
+.sample-group { font-size: 12px; font-weight: 600; letter-spacing: .32px; color: var(--cds-text-secondary); margin: 12px 0 4px; }
+.sample-group:first-child { margin-top: 0; }
+table.data td.nowrap { white-space: nowrap; }

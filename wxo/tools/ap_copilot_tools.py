@@ -138,3 +138,28 @@ def approve_ap_exception(reference: str, justification: str) -> dict:
     posted = erp.read("account.move", [("id", "=", b["id"])], ["name", "amount_total"])[0]
     return {"approved": True, "bill_number": posted["name"], "amount_inr": posted["amount_total"],
             "odoo_link": erp.bill_url(b["id"])}
+
+
+@tool(name="expense_claims", permission=ToolPermission.READ_ONLY, expected_credentials=ODOO_CREDENTIALS)
+def expense_claims(status: str = "pending", employee: str = "") -> dict:
+    """List employee expense claims in Odoo created from receipts (taxi, hotel, meals, card slips), with the
+    policy exception the AP agent raised. Use for 'pending expense approvals', 'what did Priya claim', etc.
+
+    Args:
+        status: "pending" for claims awaiting the manager, or "all".
+        employee: Optional employee name filter.
+    """
+    erp = Erp()
+    domain = [("state", "=", "draft")] if status == "pending" else []
+    if employee:
+        domain.append(("employee_id.name", "ilike", employee))
+    rows = erp.read("hr.expense", domain, ["id", "name", "employee_id", "total_amount", "date", "state", "payment_mode",
+                                           "activity_ids"], order="date desc", limit=50)
+    items = [{
+        "expense_id": r["id"], "description": r["name"], "employee": r["employee_id"][1], "amount_inr": r["total_amount"],
+        "date": r["date"], "status": {"draft": "Awaiting manager approval"}.get(r["state"], r["state"].replace("_", " ")),
+        "paid_by": "Company card" if r["payment_mode"] == "company_account" else "Employee (reimbursable)",
+        "exception": "; ".join(a["summary"] for a in erp.read("mail.activity", [("id", "in", r["activity_ids"])], ["summary"]))
+        if r["activity_ids"] else "",
+    } for r in rows]
+    return {"count": len(items), "total_inr": round(sum(i["amount_inr"] for i in items), 2), "items": items}

@@ -169,3 +169,57 @@ INVOICES = [
 
 def vendor(key: str) -> dict:
     return next(v for v in VENDORS if v["key"] == key)
+
+
+# ---- employees, expense receipts and other finance documents ------------------------------------
+# card: last 4 digits of the corporate card issued to the employee (None = reimbursed personally).
+EMPLOYEES = [
+    {"key": "vikram", "name": "Vikram Desai", "job": "Head of Operations", "card": "1094", "manager": None},
+    {"key": "ananya", "name": "Ananya Rao", "job": "Process Engineer", "card": "4821", "manager": "vikram"},
+    {"key": "rahul", "name": "Rahul Mehta", "job": "Key Account Manager", "card": "7350", "manager": "vikram"},
+    {"key": "priya", "name": "Priya Nair", "job": "Plant QA Lead", "card": None, "manager": "vikram"},
+]
+
+
+def employee_email(key: str) -> str:
+    return f"{key}@meridian-chem.example"
+
+
+# Merchants on employee receipts (fictional).
+MERCHANTS = {
+    "cityride": {"name": "CityRide Mobility Pvt. Ltd.", "gstin": make_gstin("27", "AAICC5520L"),
+                 "address": "Kurla West, Mumbai - 400070"},
+    "seabreeze": {"name": "Hotel Sabarmati Residency", "gstin": make_gstin("24", "AAFHS4410Q"),
+                  "address": "Ashram Road, Ahmedabad - 380009"},
+    "coastal": {"name": "The Coastal Kitchen", "gstin": make_gstin("27", "AAKFT8812B"),
+                "address": "Lower Parel, Mumbai - 400013"},
+}
+
+RECEIPTS = [
+    {"file": "07_receipt_cityride_taxi", "scenario": "Expense — company-card taxi within policy",
+     "kind": "taxi", "merchant": "cityride", "number": "CR-MUM-26-884213", "date": "2026-11-03",
+     "card": "4821", "submitted_by": "ananya", "fare": 612.00, "gst_pct": 5, "billed_to_company": False,
+     "trip": "Taloja MIDC → Vashi station · 18.4 km"},
+    {"file": "08_receipt_hotel_sabarmati", "scenario": "Expense — hotel above ₹6,000/night, paid personally",
+     "kind": "hotel", "merchant": "seabreeze", "number": "HSR/26-27/3318", "date": "2026-11-01",
+     "card": None, "submitted_by": "priya", "nights": 2, "rate": 8400.00, "gst_pct": 18, "billed_to_company": True,
+     "guest": "Priya Nair (Meridian Specialty Chemicals)"},
+    {"file": "09_receipt_coastal_kitchen", "scenario": "Expense — client dinner, GST credit blocked (s.17(5))",
+     "kind": "restaurant", "merchant": "coastal", "number": "TCK-11482", "date": "2026-11-02",
+     "card": "7350", "submitted_by": "rahul", "persons": 3, "gst_pct": 5, "billed_to_company": False,
+     "items": [("Coastal seafood platter", 2, 1450.00), ("Veg thali", 1, 690.00), ("Fresh lime soda", 3, 160.00)]},
+    {"file": "10_receipt_cityride_taxi_photo", "scenario": "Blocked — same taxi receipt re-submitted by another employee",
+     "kind": "taxi", "merchant": "cityride", "number": "CR-MUM-26-884213", "date": "2026-11-03",
+     "card": "4821", "submitted_by": "rahul", "fare": 612.00, "gst_pct": 5, "billed_to_company": False,
+     "trip": "Taloja MIDC → Vashi station · 18.4 km", "scan": True},
+]
+
+OTHER_DOCUMENTS = [
+    {"file": "11_po_copy_MSC-PO-26-0161", "scenario": "Purchase order — supplier-signed copy verified against Odoo",
+     "kind": "purchase_order", "po": "MSC-PO-26-0161"},
+    {"file": "12_challan_narmada_NPI-DC-1190", "scenario": "Delivery challan — 2 t backorder received (GRN)",
+     "kind": "delivery_challan", "po": "MSC-PO-26-0158", "vendor": "narmada", "number": "NPI/DC/26-27/1190",
+     "date": "2026-11-04", "vehicle": "GJ-06-AT-4471", "lines": [("pib", 2)]},
+    {"file": "13_letter_konkan_price_revision", "scenario": "Unsupported — supplier letter, routed to a person",
+     "kind": "letter", "vendor": "konkan"},
+]

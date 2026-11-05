@@ -64,8 +64,22 @@ const STATUS = {
   blocked: ["Blocked · duplicate", "magenta"],
   rejected: ["Rejected", "warm"],
   failed: ["Failed", "red"],
+  verified: ["Verified against PO", "green"],
+  received: ["Goods received", "green"],
+  unsupported: ["Unsupported", "warm"],
 };
-const statusTag = (s) => { const [l, c] = STATUS[s] || [s, ""]; return `<span class="tag ${c}">${esc(l)}</span>`; };
+const DOC_TYPES = {
+  supplier_invoice: ["Supplier invoice", "Invoice no."], expense_receipt: ["Expense receipt", "Receipt no."],
+  purchase_order: ["Purchase order", "PO no."], delivery_challan: ["Delivery challan", "Challan no."],
+  other: ["Unsupported document", "Reference"],
+};
+const docType = (d) => d.doc_type || d.meta?.doc_type || "";
+const typeLabel = (d) => DOC_TYPES[docType(d)]?.[0] || "—";
+const statusTag = (s, type) => {
+  let [l, c] = STATUS[s] || [s, ""];
+  if (type === "expense_receipt") l = { posted: "Approved · touchless", approved: "Approved by manager", exception: "Needs approval", blocked: "Blocked · duplicate" }[s] || l;
+  return `<span class="tag ${c}">${esc(l)}</span>`;
+};
 const STAGES = { received: "Received", extracting: "Running the watsonx Orchestrate flow", done: "Done" };
 
 // ---- app state, toasts, modal --------------------------------------------------------------
@@ -106,7 +120,7 @@ function modal({ label = "", title, body, primary, secondary = "Cancel", size = 
 function renderShell() {
   $("#menu-btn").innerHTML = icon("menu", 20);
   $("#reset-btn").innerHTML = icon("reset", 20);
-  const nav = { overview: ["dashboard", "Overview"], invoices: ["document", "Invoices"], assistant: ["chat", "Assistants"], governance: ["shield", "Governance"] };
+  const nav = { overview: ["dashboard", "Overview"], invoices: ["document", "Documents"], assistant: ["chat", "Assistants"], governance: ["shield", "Governance"] };
   $$(".side-nav a[data-route]").forEach((a) => {
     const [ic, label] = nav[a.dataset.route];
     a.innerHTML = `${icon(ic)}<span>${label}</span>${a.dataset.route === "invoices" ? '<span class="badge hidden" id="ex-badge"></span>' : ""}`;
@@ -163,12 +177,12 @@ async function viewOverview(view = $("#view")) {
   const max = Math.max(1, ...o.exception_reasons.map((r) => r[1]));
   view.innerHTML = `
     <div class="page-header"><div class="titles"><h1>Accounts payable overview</h1>
-      <p>Receipt-to-posting automation with India GST, TDS and 3-way match controls on live ERP data</p></div>
-      <div class="btn-row"><button class="btn primary" id="process-btn">Process invoice ${icon("add")}</button></div></div>
+      <p>Every AP document — supplier invoices, employee receipts, PO copies and delivery challans — recognised and processed against live ERP data</p></div>
+      <div class="btn-row"><button class="btn primary" id="process-btn">Process document ${icon("add")}</button></div></div>
 
     <div class="grid kpis">
-      ${kpi("Touchless rate", o.processed ? `${o.touchless_rate}%` : "—", `${o.processed} invoice(s) processed`)}
-      ${kpi("Value processed", compactInr(o.value_processed), o.in_flight ? `${o.in_flight} in flight` : "Gross invoice value")}
+      ${kpi("Touchless rate", o.processed ? `${o.touchless_rate}%` : "—", `${o.processed} document(s) processed`)}
+      ${kpi("Value processed", compactInr(o.value_processed), o.in_flight ? `${o.in_flight} in flight` : "Invoices and expenses")}
       ${kpi("Open exceptions", o.open_exceptions, `${compactInr(o.value_on_hold)} on hold`)}
       ${kpi("Duplicates blocked", o.duplicates_blocked, `${compactInr(o.value_protected)} protected`)}
       ${kpi("TDS deducted", compactInr(o.tds_deducted), "On posted bills")}
@@ -177,10 +191,10 @@ async function viewOverview(view = $("#view")) {
 
     <div class="tile" style="margin-bottom:16px"><h2>How the agent works</h2>
       <div class="pipeline">
-        ${pipe(1, "Intake", ["Gmail AP inbox (IMAP)", "Upload or API", "Scans, PDFs and images"], "Channels")}
-        ${pipe(2, "Understand", ["WDU OCR + GST invoice schema with bounding boxes", "Script node: GSTIN, regime, slab and math checks", "Prompt node: nature of payment for TDS"], "Flow · document nodes")}
-        ${pipe(3, "Validate", ["Vendor master, GSTIN and bank account", "PO + GRN 3-way match, price tolerance", "Duplicates, e-invoice IRN, TDS section"], "Flow · tool node on live Odoo")}
-        ${pipe(4, "Decide & post", ["Decision table: AP routing policy", "Touchless: bill posted with GST + TDS", "Exception: draft bill + review task; duplicate: blocked"], "Flow · decision table + branch")}
+        ${pipe(1, "Intake", ["Gmail AP inbox (IMAP)", "Upload or API", "Invoices, receipts, PO copies, challans"], "Channels")}
+        ${pipe(2, "Understand", ["WDU OCR detects the document type", "Extracts fields with bounding boxes", "Prompt nodes: TDS nature, expense category"], "Flow · document nodes")}
+        ${pipe(3, "Validate", ["Invoices: GST, 3-way match, bank, TDS", "Receipts: policy limits, card, GST credit", "POs and challans: matched to the Odoo PO"], "Flow · tool nodes on live Odoo")}
+        ${pipe(4, "Decide & act", ["Decision tables route each document", "Post bills, approve expenses, book GRNs", "Exceptions held with a task; duplicates blocked"], "Flow · decision tables + branches")}
         ${pipe(5, "Converse", ["AP Copilot for the finance team", "Supplier Desk for vendor queries", "Agents call the same ERP tools"], "watsonx Orchestrate agents")}
       </div></div>
 
@@ -191,7 +205,7 @@ async function viewOverview(view = $("#view")) {
         ${o.exception_reasons.length ? `<div class="bar-list">${o.exception_reasons.map(([r, n]) => `
           <div class="bar-row"><div class="bar-label"><span>${esc(r)}</span><span>${n}</span></div>
           <div class="bar-track"><div class="bar-fill" style="width:${(n / max) * 100}%"></div></div></div>`).join("")}</div>`
-          : `<p class="secondary">No exceptions yet. Process the sample invoices to see GST, TDS, GRN, price, bank and duplicate controls in action.</p>`}
+          : `<p class="secondary">No exceptions yet. Process the sample documents to see GST, TDS, GRN, price, bank, expense-policy and duplicate controls in action.</p>`}
       </div>
     </div>`;
   $("#process-btn").onclick = openProcessModal;
@@ -202,7 +216,7 @@ async function viewOverview(view = $("#view")) {
 }
 const kpi = (label, value, sub) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
 const pipe = (n, title, items, where) => `<div class="pipe-step"><div class="n">0${n}</div><h3>${esc(title)}</h3><ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul><span class="tag outline sm where">${esc(where)}</span></div>`;
-const emptyState = () => `<div class="empty">${icon("document", 32)}<h3>No invoices yet</h3><p>Upload a supplier invoice or run one of the six sample scenarios.</p><button class="btn primary md">Process invoice ${icon("add")}</button></div>`;
+const emptyState = () => `<div class="empty">${icon("document", 32)}<h3>No documents yet</h3><p>Upload any AP document or run one of the sample scenarios.</p><button class="btn primary md">Process document ${icon("add")}</button></div>`;
 
 // ---- invoices list --------------------------------------------------------------------------
 const FILTERS = [["all", "All", () => true], ["review", "Needs review", (d) => d.status === "exception"],
@@ -217,12 +231,12 @@ async function viewInvoices(view) {
   const rows = docs.filter(fn);
   const gmail = state.status?.gmail?.connected;
   view.innerHTML = `
-    <div class="page-header"><div class="titles"><h1>Invoices</h1><p>Every supplier invoice the agent has received, with its control outcome and ERP posting</p></div>
+    <div class="page-header"><div class="titles"><h1>Documents</h1><p>Every document the agent has received — supplier invoices, expense receipts, PO copies and delivery challans — with its outcome in Odoo</p></div>
       <div class="btn-row"><button class="btn secondary" id="inbox-btn" ${gmail ? "" : 'title="Configure GMAIL_USER and GMAIL_APP_PASSWORD in .env"'}>Check AP inbox ${icon("email")}</button>
-      <button class="btn primary" id="process-btn">Process invoice ${icon("add")}</button></div></div>
+      <button class="btn primary" id="process-btn">Process document ${icon("add")}</button></div></div>
     <div class="table-wrap">
       <div class="toolbar"><div class="tabs">${FILTERS.map(([k, l, f]) => `<button data-f="${k}" class="${k === currentFilter ? "active" : ""}">${l}<span class="count">${docs.filter(f).length}</span></button>`).join("")}</div></div>
-      ${rows.length ? invoiceTable(rows) : docs.length ? `<div class="empty"><p>No invoices in this view.</p></div>` : emptyState()}
+      ${rows.length ? invoiceTable(rows) : docs.length ? `<div class="empty"><p>No documents in this view.</p></div>` : emptyState()}
     </div>`;
   $$(".tabs button", view).forEach((b) => (b.onclick = () => { currentFilter = b.dataset.f; viewInvoices(view); }));
   $("#process-btn").onclick = openProcessModal;
@@ -234,14 +248,15 @@ async function viewInvoices(view) {
 }
 
 function invoiceTable(docs, compact = false) {
-  return `<table class="data"><thead><tr><th>Status</th><th>Supplier</th><th>Invoice no.</th>${compact ? "" : "<th>Invoice date</th><th>PO</th>"}<th class="num">Amount</th>${compact ? "" : "<th>Exceptions</th><th>Odoo bill</th>"}</tr></thead><tbody>
+  return `<table class="data"><thead><tr><th>Status</th><th>From</th>${compact ? "" : "<th>Type</th>"}<th>Number</th>${compact ? "" : "<th>Date</th><th>PO</th>"}<th class="num">Amount</th>${compact ? "" : "<th>Exceptions</th><th>Odoo record</th>"}</tr></thead><tbody>
     ${docs.map((d) => `<tr class="click" data-id="${d.id}">
-      <td>${d.status === "processing" ? `<span class="inline-loading"><span class="spinner"></span>${esc(STAGES[d.stage] || "Processing")}</span>` : statusTag(d.status)}</td>
-      <td>${esc(d.vendor || d.file_name)}${compact ? "" : `<div class="helper">${esc(d.source)} · ${timeAgo(d.created_at)}</div>`}</td>
+      <td>${d.status === "processing" ? `<span class="inline-loading"><span class="spinner"></span>${esc(STAGES[d.stage] || "Processing")}</span>` : statusTag(d.status, d.doc_type)}</td>
+      <td>${esc(d.vendor || d.file_name)}${compact ? `<div class="helper">${esc(typeLabel(d))}</div>` : `<div class="helper">${esc(d.source)} · ${timeAgo(d.created_at)}</div>`}</td>
+      ${compact ? "" : `<td>${esc(typeLabel(d))}</td>`}
       <td class="mono">${esc(d.invoice_number || "—")}</td>
-      ${compact ? "" : `<td>${dateFmt(d.invoice_date)}</td><td class="mono">${esc(d.po || "—")}</td>`}
+      ${compact ? "" : `<td class="nowrap">${dateFmt(d.invoice_date)}</td><td class="mono nowrap">${esc(d.po || "—")}</td>`}
       <td class="num">${inr(d.total)}</td>
-      ${compact ? "" : `<td class="issues">${d.error ? esc(d.error.slice(0, 90)) : esc(d.issues.join(" · ") || "—")}</td><td class="mono">${esc(d.bill || "—")}</td>`}
+      ${compact ? "" : `<td class="issues">${d.error ? esc(d.error.slice(0, 90)) : esc(d.issues.join(" · ") || "—")}</td><td class="mono">${esc(d.erp_ref || "—")}</td>`}
     </tr>`).join("")}</tbody></table>`;
 }
 const bindRows = (el) => $$("tr[data-id]", el).forEach((tr) => (tr.onclick = () => (location.hash = `#/invoices/${tr.dataset.id}`)));
@@ -256,18 +271,24 @@ async function checkInbox() {
 }
 
 // ---- process modal --------------------------------------------------------------------------
+const sampleTone = (t) => (/^(Touchless|Purchase order|Delivery challan)/.test(t) ? "green" : /^Blocked/.test(t) ? "magenta"
+  : /^Unsupported/.test(t) ? "warm" : /^Expense — (company-card|client)/.test(t) ? "green" : "red");
+
 async function openProcessModal() {
   const samples = await api("/api/samples");
   let file = null, sample = null;
   const root = modal({
-    label: "New invoice", title: "Process a supplier invoice", size: "lg",
+    label: "New document", title: "Process a document", size: "lg",
     body: `<div class="dropzone" id="dz" tabindex="0">Drag and drop a file here or click to upload
-        <span class="helper">PDF, PNG, JPG or TIFF · one invoice per file</span><input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" hidden></div>
-      <p class="helper" style="margin-bottom:8px">Or run a sample scenario — each exercises a different family of controls against the live ERP</p>
-      <div class="sample-list">${samples.map((s, i) => `<label class="sample" data-file="${esc(s.file)}">
-        <input type="radio" name="sample" value="${esc(s.file)}" ${i === 0 ? "" : ""}>
-        <div><div class="t">${esc(s.scenario)}</div><div class="helper mono">${esc(s.file)}</div></div>
-        <span class="tag ${/^Touchless/.test(s.scenario) ? "green" : /^Blocked/.test(s.scenario) ? "magenta" : "red"} sm">${esc(s.scenario.split(" —")[0])}</span></label>`).join("")}</div>`,
+        <span class="helper">Invoice, receipt, PO copy or delivery challan · PDF, PNG, JPG or TIFF · watsonx Orchestrate recognises the type</span><input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" hidden></div>
+      <p class="helper" style="margin-bottom:8px">Or run a sample scenario — each exercises a different document type or family of controls against the live ERP</p>
+      <div class="sample-list">${Object.keys(DOC_TYPES).filter((k) => k !== "other").concat(["letter"]).map((kind) => {
+        const list = samples.filter((s) => s.kind === kind); if (!list.length) return "";
+        return `<p class="sample-group">${esc(kind === "letter" ? "Other documents" : DOC_TYPES[kind][0] + "s")}</p>` + list.map((s) => `<label class="sample" data-file="${esc(s.file)}">
+        <input type="radio" name="sample" value="${esc(s.file)}">
+        <div><div class="t">${esc((([t]) => t[0].toUpperCase() + t.slice(1))([s.scenario.split(" — ")[1] || s.scenario]))}</div><div class="helper mono">${esc(s.file)}</div></div>
+        <span class="tag ${sampleTone(s.scenario)} sm">${esc(s.scenario.split(" —")[0])}</span></label>`).join("");
+      }).join("")}</div>`,
     primary: { text: "Process", busy: "Submitting…", onClick: async () => {
       if (!file && !sample) { toast("warning", "Choose a file or a sample first."); return false; }
       const fd = new FormData();
@@ -290,10 +311,12 @@ async function openProcessModal() {
 }
 
 // ---- invoice detail -------------------------------------------------------------------------
-const CATEGORY_ORDER = ["Document", "Arithmetic", "GST", "E-invoice", "Vendor", "Risk", "3-way match", "TDS", "Approval"];
+const CATEGORY_ORDER = ["Document", "Arithmetic", "GST", "E-invoice", "Vendor", "Risk", "3-way match", "TDS", "Approval", "Expense policy", "Purchase order", "Goods receipt"];
 const CHECK_FIELDS = { "GST-01": ["supplier_gstin"], "GST-02": ["buyer_gstin"], "GST-05": ["buyer_gstin"], "GST-03": ["cgst_amount", "sgst_amount", "igst_amount"],
   "BANK-01": ["bank_account", "bank_ifsc", "bank_name"], "DUP-01": ["invoice_number"], "PO-03": ["line_items.unit_price"], "GRN-01": ["line_items.quantity"],
-  "MATH-02": ["total_amount"], "PO-01": ["po_number"], "VEND-01": ["supplier_gstin"] };
+  "MATH-02": ["total_amount"], "PO-01": ["po_number"], "VEND-01": ["supplier_gstin"], "EXP-03": ["total_amount"],
+  "DUP-02": ["receipt_number"], "EXP-06": ["card_last4"], "PO-13": ["line_items.quantity", "line_items.unit_price"],
+  "GRN-13": ["line_items.quantity"], "DUP-03": ["challan_number"], "PO-11": ["po_number"], "GRN-11": ["po_number"] };
 const FIELD_LABELS = [["supplier_name", "Supplier"], ["supplier_gstin", "Supplier GSTIN"], ["buyer_name", "Buyer"], ["buyer_gstin", "Buyer GSTIN"],
   ["place_of_supply", "Place of supply"], ["invoice_number", "Invoice number"], ["invoice_date", "Invoice date"], ["po_number", "PO number"], ["irn", "IRN"],
   ["taxable_value", "Taxable value"], ["cgst_amount", "CGST"], ["sgst_amount", "SGST"], ["igst_amount", "IGST"], ["total_amount", "Invoice total"],
@@ -304,36 +327,69 @@ async function viewDetail(view, id) {
   let d;
   try { d = await api(`/api/documents/${id}`); } catch { view.innerHTML = `<div class="empty"><h3>Invoice not found</h3><a href="#/invoices">Back to invoices</a></div>`; return; }
   const ext = d.extraction || {}, inv = ext.invoice || {}, c = d.controls || {}, erp = d.erp || {};
+  const type = docType(d) || "supplier_invoice", isInv = type === "supplier_invoice", rec = ext.document || {};
   const checks = c.checks || [];
   const fails = checks.filter((x) => x.status === "fail");
-  const bill = erp.bill;
+  const bill = erp.bill, exp = erp.expense, grn = erp.receipt;
   const tds = c.tds || {};
   const processing = d.status === "processing";
+  const link = (url, text) => `<a class="btn tertiary md" href="${esc(url)}" target="_blank" rel="noopener">${text} ${icon("launch")}</a>`;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-  const actions = d.status === "exception" ? `
+  const actions = d.status === "exception" && isInv ? `
       <button class="btn danger-ghost md" id="reject-btn">Reject</button>
       <button class="btn tertiary md" id="email-btn">Email supplier ${icon("email")}</button>
       ${bill ? `<button class="btn primary md" id="approve-btn">Approve &amp; post</button>` : ""}`
-    : bill ? `<a class="btn tertiary md" href="${esc(bill.url)}" target="_blank" rel="noopener">Open bill in Odoo ${icon("launch")}</a>` : "";
+    : d.status === "exception" && exp ? `
+      <button class="btn danger-ghost md" id="reject-btn">Refuse</button>${link(exp.url, "Open expense in Odoo")}
+      <button class="btn primary md" id="approve-btn">Approve expense</button>`
+    : bill ? link(bill.url, "Open bill in Odoo") : exp ? link(exp.url, "Open expense in Odoo")
+    : grn ? link(grn.url, "Open receipt in Odoo") : c.po ? link(c.po.url, "Open PO in Odoo") : "";
+  const number = d.invoice_number ? `${DOC_TYPES[type][1]} <span class="mono">${esc(d.invoice_number)}</span> · ${dateFmt(d.invoice_date)} · ` : "";
+
+  const emp = c.employee, paidBy = c.payment_mode === "company_account" ? "Company card" : "Employee (reimbursable)";
+  const notice = (kind, ic, title, body) => `<div class="notice ${kind}">${icon(ic)}<div><b>${title}</b>${body}</div></div>`;
+  const failTags = fails.map((f) => `<span class="tag red sm">${esc(f.label || f.title)}</span>`).join(" ");
+  let banner = "";
+  if (d.status === "failed") banner = notice("error", "error", "Processing failed.", esc(d.error));
+  else if (d.status === "blocked") banner = notice("error", "error", "Blocked as a duplicate.", esc(erp.reason || ""));
+  else if (d.status === "unsupported") banner = notice("info", "info", "Not a document type the agent handles.", "It was not an invoice, receipt, PO or delivery challan, so nothing was changed in Odoo and it is left for a person.");
+  else if (d.status === "exception" && isInv) banner = notice("warning", "warning", `${plural(fails.length, "exception needs", "exceptions need")} review.`, `${bill ? `Draft bill #${bill.id} is on hold in Odoo with a review task assigned.` : "No bill was created."} ${failTags}`);
+  else if (d.status === "exception" && type === "expense_receipt") banner = notice("warning", "warning", `${plural(fails.length, "policy exception needs", "policy exceptions need")} the manager.`, `${exp ? `Expense #${exp.id} for ${esc(emp?.name || "the employee")} is a draft in Odoo with an approval task${emp?.manager ? ` for ${esc(emp.manager)}` : ""}.` : "No expense was created."} ${failTags}`);
+  else if (d.status === "exception") banner = notice("warning", "warning", `${plural(fails.length, "discrepancy", "discrepancies")} against Odoo.`, `Nothing was changed in Odoo. ${failTags}`);
+  else if (["posted", "approved"].includes(d.status) && bill) banner = notice("success", "check", d.status === "posted" ? "Posted touchless." : "Approved and posted.", `Bill <a href="${esc(bill.url)}" target="_blank" rel="noopener">${esc(bill.name)}</a> is booked in Odoo${erp.resolution === "received_qty" ? ` for the received quantity only (${inr(bill.amount_total)}); request a credit note for the balance` : ""}${tds.applicable ? ` with TDS of ${inr(tds.amount)} to be withheld at payment` : ""}.`);
+  else if (["posted", "approved"].includes(d.status) && exp) banner = notice("success", "check", d.status === "posted" ? "Approved touchless." : "Approved by manager.", `Expense <a href="${esc(exp.url)}" target="_blank" rel="noopener">#${exp.id}</a> for ${esc(emp?.name || "")} is booked in Odoo · ${paidBy.toLowerCase()}${c.itc_eligible === false && c.gst ? " · GST booked as cost" : ""}.`);
+  else if (d.status === "rejected" && exp) banner = notice("info", "info", "Expense refused.", `Expense #${exp.id} is refused in Odoo.`);
+  else if (d.status === "verified") banner = notice("success", "check", "Verified against Odoo.", `The copy matches <a href="${esc(c.po.url)}" target="_blank" rel="noopener">${esc(c.po.name)}</a>; the check is logged on the PO.`);
+  else if (d.status === "received") banner = notice("success", "check", "Goods received.", `${esc(erp.summary)}.${(erp.released_bills || []).length ? ` A note was added to ${erp.released_bills.map((b) => esc(b.ref)).join(", ")} so AP can approve it as invoiced.` : ""}`);
+
+  const passed = `${checks.filter((x) => x.status === "pass").length}/${checks.length} passed`;
+  let strip = "";
+  if (!processing && isInv && inv.total_amount != null) strip = `
+      ${sum("Taxable value", inr(inv.taxable_value))}${sum("GST", inr((inv.cgst_amount || 0) + (inv.sgst_amount || 0) + (inv.igst_amount || 0)))}
+      ${sum("Invoice total", inr(inv.total_amount))}${sum("TDS", tds.applicable ? inr(tds.amount) : "—")}
+      ${bill?.state === "posted" ? sum("Booked in Odoo", inr(bill.amount_total)) : sum("Net payable", inr(c.net_payable ?? inv.total_amount))}${sum("Controls", passed)}`;
+  else if (!processing && type === "expense_receipt") strip = `
+      ${sum("Amount", inr2(rec.total_amount))}${sum("GST", `${inr2(c.gst)}${c.gst ? (c.itc_eligible ? " · credit" : " · cost") : ""}`)}
+      ${sum("Category", c.category_name || "—")}${sum("Employee", emp?.name || "—")}${sum("Paid by", c.employee ? paidBy : "—")}${sum("Controls", passed)}`;
+  else if (!processing && checks.length) strip = `
+      ${sum("Purchase order", c.po?.name || rec.po_number || "—")}${sum("Supplier", c.po?.vendor || rec.supplier_name || "—")}
+      ${sum("Lines", String((rec.line_items || []).length))}${sum(type === "delivery_challan" ? "Receipt" : "PO value", type === "delivery_challan" ? grn?.name || "Not booked" : inr(c.po?.amount_untaxed))}${sum("Controls", passed)}`;
+
+  const tabList = isInv ? [["controls", "Controls"], ["data", "Extracted data"], ["match", "3-way match"], ["audit", "ERP & audit trail"]]
+    : checks.length ? [["controls", "Controls"], ["data", "Extracted data"], ["audit", "ERP & audit trail"]] : [["data", "Extracted data"], ["audit", "Audit trail"]];
 
   view.innerHTML = `
-    <div class="breadcrumb"><a href="#/invoices">Invoices</a> / ${esc(inv.invoice_number || d.file_name)}</div>
+    <div class="breadcrumb"><a href="#/invoices">Documents</a> / ${esc(d.invoice_number || d.file_name)}</div>
     <div class="page-header"><div class="titles"><h1>${esc(d.vendor || d.file_name)}</h1>
-      <p>${inv.invoice_number ? `Invoice <span class="mono">${esc(inv.invoice_number)}</span> · ${dateFmt(inv.invoice_date)} · ` : ""}${statusTag(d.status)}
+      <p><span class="tag outline sm">${esc(processing ? "Identifying…" : typeLabel(d))}</span> ${number}${statusTag(d.status, type)}
       ${c.vendor ? ` · <a href="${esc(c.vendor.url)}" target="_blank" rel="noopener">Vendor master</a>` : ""}
-      ${c.po ? ` · <a href="${esc(c.po.url)}" target="_blank" rel="noopener">${esc(c.po.name)}</a>` : ""}</p></div>
+      ${c.po && isInv ? ` · <a href="${esc(c.po.url)}" target="_blank" rel="noopener">${esc(c.po.name)}</a>` : ""}</p></div>
       <div class="btn-row gap">${!processing && d.status !== "failed" ? `<a class="btn ghost md" href="#/assistant" id="ask-btn">Ask AP Copilot ${icon("chat")}</a>` : ""}${actions}</div></div>
 
     ${progress(d)}
-    ${d.status === "failed" ? `<div class="notice error">${icon("error")}<div><b>Processing failed.</b>${esc(d.error)}</div></div>` : ""}
-    ${d.status === "exception" ? `<div class="notice warning">${icon("warning")}<div><b>${fails.length} exception${fails.length > 1 ? "s need" : " needs"} review.</b>${bill ? `Draft bill #${bill.id} is on hold in Odoo with a review task assigned.` : "No bill was created."} ${fails.map((f) => `<span class="tag red sm">${esc(f.label || f.title)}</span>`).join(" ")}</div></div>` : ""}
-    ${d.status === "blocked" ? `<div class="notice error">${icon("error")}<div><b>Blocked as a duplicate.</b>${esc(erp.reason || "")}</div></div>` : ""}
-    ${["posted", "approved"].includes(d.status) && bill ? `<div class="notice success">${icon("check")}<div><b>${d.status === "posted" ? "Posted touchless." : "Approved and posted."}</b>Bill <a href="${esc(bill.url)}" target="_blank" rel="noopener">${esc(bill.name)}</a> is booked in Odoo${erp.resolution === "received_qty" ? ` for the received quantity only (${inr(bill.amount_total)}); request a credit note for the balance` : ""}${tds.applicable ? ` with TDS of ${inr(tds.amount)} to be withheld at payment` : ""}.</div></div>` : ""}
-
-    ${inv.total_amount != null && !processing ? `<div class="summary">
-      ${sum("Taxable value", inr(inv.taxable_value))}${sum("GST", inr((inv.cgst_amount || 0) + (inv.sgst_amount || 0) + (inv.igst_amount || 0)))}
-      ${sum("Invoice total", inr(inv.total_amount))}${sum("TDS", tds.applicable ? inr(tds.amount) : "—")}
-      ${bill?.state === "posted" ? sum("Booked in Odoo", inr(bill.amount_total)) : sum("Net payable", inr(c.net_payable ?? inv.total_amount))}${sum("Controls", `${checks.filter((x) => x.status === "pass").length}/${checks.length} passed`)}</div>` : ""}
+    ${banner}
+    ${strip ? `<div class="summary">${strip}</div>` : ""}
 
     <div class="grid detail-cols">
       <div class="viewer"><div class="vbar"><span class="name">${esc(d.file_name)}</span>
@@ -342,7 +398,7 @@ async function viewDetail(view, id) {
         <div class="doc-stage"><div class="doc-page" id="doc-page"><img src="/api/documents/${d.id}/preview" alt="Invoice ${esc(d.file_name)}"></div></div></div>
       <div class="panel">${processing ? processingPanel(d) : `
         <div class="toolbar"><div class="tabs" id="dtabs">
-          ${[["controls", `Controls`], ["data", "Extracted data"], ["match", "3-way match"], ["audit", "ERP & audit trail"]].map(([k, l]) => `<button data-t="${k}" class="${k === detailTab ? "active" : ""}">${l}${k === "controls" && fails.length ? `<span class="count">${fails.length} failed</span>` : ""}</button>`).join("")}
+          ${tabList.map(([k, l]) => `<button data-t="${k}" class="${k === detailTab ? "active" : ""}">${l}${k === "controls" && fails.length ? `<span class="count">${fails.length} failed</span>` : ""}</button>`).join("")}
         </div></div><div class="panel-body" id="dtab-body"></div>`}</div>
     </div>`;
 
@@ -350,30 +406,39 @@ async function viewDetail(view, id) {
   $("#bb-toggle").onchange = (e) => { state.showBoxes = e.target.checked; drawBoxes(d); };
   clearInterval(state.timer);
   if (processing) { poll(async () => { const n = await api(`/api/documents/${id}`); if (n.status !== "processing" || n.timeline.length !== d.timeline.length || n.stage !== d.stage) viewDetail(view, id); }, 2000); return; }
-  const tabs = { controls: () => controlsTab(checks), data: () => dataTab(inv, ext.payment_nature), match: () => matchTab(c), audit: () => auditTab(d) };
+  const tabs = { controls: () => controlsTab(checks), data: () => (isInv ? dataTab(inv, ext.payment_nature) : docDataTab(rec, type, c)),
+    match: () => matchTab(c), audit: () => auditTab(d) };
   const show = (t) => { detailTab = t; $$("#dtabs button").forEach((b) => b.classList.toggle("active", b.dataset.t === t)); $("#dtab-body").innerHTML = tabs[t](); bindFieldHover(d); };
   $$("#dtabs button").forEach((b) => (b.onclick = () => show(b.dataset.t)));
-  show(tabs[detailTab] ? detailTab : "controls");
-  $("#ask-btn")?.addEventListener("click", () => { state.agent = "copilot"; state.pendingPrompt = `Explain the status of invoice ${inv.invoice_number} from ${d.vendor} and what I should do next.`; });
-  $("#approve-btn")?.addEventListener("click", () => approveModal(d));
-  $("#reject-btn")?.addEventListener("click", () => rejectModal(d));
+  show(tabList.some(([k]) => k === detailTab) ? detailTab : tabList[0][0]);
+  const ask = { expense_receipt: `Show the expense claims for ${emp?.name || "this employee"} and explain any policy exception.`,
+    purchase_order: `What was ordered, received and billed on ${c.po?.name || rec.po_number}?`,
+    delivery_challan: `What was ordered, received and billed on ${c.po?.name || rec.po_number}?` }[type]
+    || `Explain the status of invoice ${inv.invoice_number} from ${d.vendor} and what I should do next.`;
+  $("#ask-btn")?.addEventListener("click", () => { state.agent = "copilot"; state.pendingPrompt = ask; });
+  $("#approve-btn")?.addEventListener("click", () => (exp ? approveExpenseModal(d) : approveModal(d)));
+  $("#reject-btn")?.addEventListener("click", () => (exp ? refuseExpenseModal(d) : rejectModal(d)));
   $("#email-btn")?.addEventListener("click", () => emailModal(d));
 }
 const sum = (l, v) => `<div><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div></div>`;
+
+const CONTROL_NODES = ["ERP controls", "Expense policy", "Verify PO", "Receive goods"];
 
 function progress(d) {
   const tl = Object.fromEntries(d.timeline.map((t) => [t.step, t]));
   const node = (label) => d.timeline.some((t) => t.detail.startsWith(label)) || tl.flow?.status === "done";
   const failed = d.status === "failed";
-  const decided = ["posted", "approved", "exception", "blocked", "rejected"].includes(d.status);
-  const decision = { posted: "Touchless", approved: "Approved after review", exception: "Exception — on hold", blocked: "Blocked", rejected: "Rejected" }[d.status];
+  const decided = ["posted", "approved", "exception", "blocked", "rejected", "verified", "received", "unsupported"].includes(d.status);
+  const decision = { posted: "Touchless", approved: "Approved after review", exception: "Exception — on hold", blocked: "Blocked", rejected: "Rejected",
+    verified: "Verified", received: "Received", unsupported: "Left for a person" }[d.status];
   const steps = [
     ["Received", tl.intake ? d.source : "", tl.intake ? "done" : "current"],
-    ["Extracted", node("Classify nature") ? "Document, GST and TDS nodes" : tl.flow ? tl.flow.detail : "", node("Classify nature") ? "done" : tl.intake ? "current" : ""],
-    ["Validated", tl.controls ? tl.controls.detail.split(" · ").slice(0, 2).join(" · ") : node("ERP controls") ? "ERP controls on Odoo" : "", node("ERP controls") ? "done" : node("Classify nature") ? "current" : ""],
-    ["Decision", decision || "", decided ? (d.status === "exception" || d.status === "blocked" ? "failed" : "done") : node("ERP controls") ? "current" : ""],
-    ["ERP", tl.erp ? (d.erp?.bill?.name || d.erp?.summary || "") : "", tl.erp ? "done" : ""],
+    ["Identified", node("Identify document") ? typeLabel(d) : tl.flow ? tl.flow.detail : "", node("Identify document") ? "done" : tl.intake ? "current" : ""],
+    ["Validated", tl.controls ? tl.controls.detail.split(" · ").slice(0, 2).join(" · ") : CONTROL_NODES.some(node) ? "Controls on Odoo" : "", CONTROL_NODES.some(node) ? "done" : node("Identify document") ? "current" : ""],
+    ["Decision", decision || "", decided ? (d.status === "exception" || d.status === "blocked" ? "failed" : "done") : CONTROL_NODES.some(node) ? "current" : ""],
+    ["ERP", tl.erp ? (d.erp?.bill?.name || d.erp?.summary || "") : "", tl.erp ? (d.status === "unsupported" ? "pending" : "done") : ""],
   ];
+  if (d.status === "unsupported") steps[2] = ["Validated", "Not applicable", "pending"];
   if (failed) { const i = steps.findIndex((s) => s[2] !== "done"); if (i >= 0) steps[i][2] = "failed"; }
   const ic = (s) => (s === "done" ? icon("check") : s === "current" && !failed ? '<span class="spinner"></span>' : s === "failed" ? icon(d.status === "exception" ? "warning" : "error") : icon("pending"));
   return `<div class="progress">${steps.map(([t, desc, s]) => `<div class="step ${s}">${ic(s)}<div><div class="t">${t}</div><div class="d">${esc(desc)}</div></div></div>`).join("")}</div>`;
@@ -408,6 +473,50 @@ function dataTab(inv, nature) {
       <p><span class="tag purple">${esc(nature.nature)}</span> <span class="helper">${Math.round((nature.confidence || 0) * 100)}% confidence</span></p><p class="secondary">${esc(nature.rationale)}</p>` : ""}`;
 }
 
+const DOC_FIELD_LABELS = { merchant_name: "Merchant", merchant_gstin: "Merchant GSTIN", receipt_number: "Receipt number",
+  receipt_date: "Receipt date", buyer_gstin: "Billed to GSTIN", guest_or_trip: "Guest / trip", nights: "Nights", persons: "Covers",
+  taxable_value: "Taxable value", cgst_amount: "CGST", sgst_amount: "SGST", igst_amount: "IGST", total_amount: "Total",
+  card_last4: "Card (last 4)", po_number: "PO number", po_date: "PO date", supplier_name: "Supplier", supplier_gstin: "Supplier GSTIN",
+  challan_number: "Challan number", challan_date: "Challan date", vehicle_number: "Vehicle" };
+const MONEY = new Set(["taxable_value", "cgst_amount", "sgst_amount", "igst_amount", "total_amount"]);
+
+function docDataTab(rec, type, c) {
+  const keys = Object.keys(rec).filter((k) => k !== "line_items" && rec[k] !== "" && rec[k] != null);
+  const lines = rec.line_items || [];
+  const ai = c.category_ai;
+  return `${keys.length ? `<dl class="fields">${keys.map((k) => `<dt>${esc(DOC_FIELD_LABELS[k] || k.replace(/_/g, " "))}</dt><dd class="f ${/gstin|number|last4/.test(k) ? "mono" : ""}" data-fields="${esc(k)}">${esc(MONEY.has(k) ? inr2(rec[k]) : rec[k])}</dd>`).join("")}</dl>`
+    : `<p class="secondary">No fields were extracted — the document did not match an AP document type.</p>`}
+    ${lines.length ? `<h3 class="section-title" style="margin-top:24px">Line items</h3>
+    <div class="table-wrap"><table class="data compact"><thead><tr><th>#</th><th>Description</th><th class="num">Qty</th>${type === "purchase_order" ? '<th class="num">Rate</th>' : ""}${type === "expense_receipt" ? '<th class="num">Amount</th>' : ""}</tr></thead><tbody>
+    ${lines.map((l, i) => `<tr class="f" data-row="${i}"><td>${i + 1}</td><td>${esc(l.description)}</td><td class="num">${l.quantity || "—"} ${esc(l.uom || "")}</td>${type === "purchase_order" ? `<td class="num">${inr2(l.unit_price)}</td>` : ""}${type === "expense_receipt" ? `<td class="num">${inr2(l.amount)}</td>` : ""}</tr>`).join("")}</tbody></table></div>` : ""}
+    ${ai?.category ? `<h3 class="section-title" style="margin-top:24px">Expense category (AI)</h3>
+      <p><span class="tag purple">${esc(c.category_name || ai.category)}</span> <span class="helper">${Math.round((ai.confidence || 0) * 100)}% confidence</span></p><p class="secondary">${esc(ai.purpose || "")}</p>` : ""}`;
+}
+
+function approveExpenseModal(d) {
+  const fails = (d.controls?.checks || []).filter((c) => c.status === "fail");
+  modal({
+    label: d.invoice_number, title: "Approve expense",
+    body: `<p style="margin-top:0">Overriding: ${esc(fails.map((f) => f.label || f.title).join(", "))}</p>
+      <div class="field"><label for="note">Manager's note (recorded on the expense in Odoo)</label><input class="input" id="note" placeholder="e.g. Only hotel near the Vadodara plant during the audit week"></div>`,
+    primary: { text: "Approve", busy: "Approving…", onClick: async (root) => {
+      await post(`/api/documents/${d.id}/approve`, { note: $("#note", root).value });
+      toast("success", "Expense approved.", " Booked in Odoo."); route();
+    } },
+  });
+}
+
+function refuseExpenseModal(d) {
+  modal({
+    label: d.invoice_number, title: "Refuse expense",
+    body: `<div class="field"><label for="reason">Reason (shown to the employee in Odoo)</label><input class="input" id="reason" value="${esc((d.controls?.checks || []).filter((c) => c.status === "fail").map((c) => c.label || c.title).join("; "))}"></div>`,
+    primary: { text: "Refuse", danger: true, busy: "Refusing…", onClick: async (root) => {
+      await post(`/api/documents/${d.id}/reject`, { reason: $("#reason", root).value });
+      toast("success", "Expense refused."); route();
+    } },
+  });
+}
+
 function matchTab(c) {
   if (!c.po) return `<div class="notice warning">${icon("warning")}<div><b>No purchase order matched.</b>3-way match could not run.</div></div>`;
   const receipts = (c.po.receipts || []).map((r) => `<span class="tag ${r.state === "done" ? "green" : "warm"} sm mono">${esc(r.name)} · ${r.state === "done" ? "received" : "backorder open"}</span>`).join(" ") || '<span class="helper">Services — accepted quantity recorded on the PO</span>';
@@ -429,6 +538,18 @@ function matchTab(c) {
 function auditTab(d) {
   const c = d.controls || {}, erp = d.erp || {}, bill = erp.bill, tds = c.tds || {};
   const flow = d.timeline.find((t) => t.step === "flow");
+  const a = (url, text) => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  const odoo = docType(d) === "expense_receipt" ? `
+      <dt>Expense</dt><dd>${erp.expense ? `${a(erp.expense.url, `#${erp.expense.id} · ${erp.expense.name}`)} · ${esc(erp.expense.state)}` : "Not created"}</dd>
+      <dt>Employee</dt><dd>${esc(c.employee?.name || "—")}${c.employee?.manager ? `<div class="helper">Manager: ${esc(c.employee.manager)}</div>` : ""}</dd>
+      <dt>Paid by</dt><dd>${c.payment_mode === "company_account" ? "Company card — settled, no reimbursement" : "Employee — reimbursable"}</dd>
+      <dt>GST</dt><dd>${inr2(c.gst)} · ${c.itc_eligible ? "input credit claimed" : "booked as cost"}</dd>`
+    : ["purchase_order", "delivery_challan"].includes(docType(d)) ? `
+      <dt>Purchase order</dt><dd>${c.po ? a(c.po.url, `${c.po.name} · ${c.po.vendor}`) : "Not found"}</dd>
+      ${docType(d) === "delivery_challan" ? `<dt>Goods receipt</dt><dd>${erp.receipt ? a(erp.receipt.url, erp.receipt.name) + " · validated" : "Not booked"}</dd>
+      <dt>Held bills notified</dt><dd>${(erp.released_bills || []).map((b) => esc(b.ref)).join(", ") || "None"}</dd>` : ""}
+      <dt>Result</dt><dd>${esc(erp.summary || "")}</dd>` : docType(d) === "other" ? `<dt>Action</dt><dd>${esc(erp.summary || "")}</dd>` : "";
+  if (odoo) return `<h3 class="section-title">Odoo</h3><dl class="fields">${odoo}</dl>${trailHtml(d, flow)}`;
   return `<h3 class="section-title">Odoo</h3>
     <dl class="fields">
       <dt>Vendor bill</dt><dd>${bill ? `<a href="${esc(bill.url)}" target="_blank" rel="noopener">${esc(bill.name || `Draft #${bill.id}`)}</a> · ${esc(bill.state)}` : "Not created"}</dd>
@@ -437,7 +558,11 @@ function auditTab(d) {
       <dt>Net payable</dt><dd>${inr2(c.net_payable)}</dd>
       ${erp.resolution ? `<dt>Resolution</dt><dd>${erp.resolution === "received_qty" ? "Posted for received quantity" : "Posted as invoiced"}</dd>` : ""}
     </dl>
-    <h3 class="section-title" style="margin-top:24px">Processing trail</h3>
+    ${trailHtml(d, flow)}`;
+}
+
+function trailHtml(d, flow) {
+  return `<h3 class="section-title" style="margin-top:24px">Processing trail</h3>
     <ul class="timeline">${d.timeline.map((t) => `<li>${t.status === "done" ? icon("check") : t.status === "failed" ? icon("error") : icon("info")}
       <div><div>${esc(t.detail)}</div><div class="helper">${esc(t.step)} · ${new Date(t.at).toLocaleTimeString("en-IN")}</div>
       ${t.nodes ? `<ul class="nodes">${t.nodes.map((n) => `<li><span>${esc(n.label)}</span><span>${(n.duration_ms / 1000).toFixed(1)} s</span></li>`).join("")}</ul>` : ""}</div>
@@ -626,7 +751,7 @@ async function viewGovernance(view) {
       </tbody></table></div>
 
     <div class="tile"><h2>Process controls in the flow</h2>
-      <p class="secondary" style="max-width:860px">Invoice validation does not depend on an agent's judgement. In <span class="mono">ap_invoice_processing_flow</span>, a script node and an Odoo tool node run the GST, 3-way match, duplicate, bank and TDS checks. A decision table then routes each invoice, and AP can edit that table in the flow editor without code:</p>
+      <p class="secondary" style="max-width:860px">Invoice validation does not depend on an agent's judgement. In <span class="mono">ap_document_processing_flow</span>, a script node and an Odoo tool node run the GST, 3-way match, duplicate, bank and TDS checks. A decision table then routes each invoice, and AP can edit that table in the flow editor without code:</p>
       <table class="data compact" style="max-width:860px"><thead><tr><th>#</th><th>When</th><th>Route</th></tr></thead><tbody>
         <tr><td>1</td><td>A duplicate invoice is found</td><td>${statusTag("blocked")}</td></tr>
         <tr><td>2</td><td>Any control failed</td><td>${statusTag("exception")}</td></tr>

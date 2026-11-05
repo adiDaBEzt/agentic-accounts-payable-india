@@ -144,12 +144,15 @@ class Odoo:
         self.call(model, "message_post", [rec_id], body=html, message_type="comment", subtype_xmlid="mail.mt_note")
 
     def schedule_review(self, bill_id: int, summary: str, note: str = "") -> None:
-        model_id = self.call("ir.model", "search", [("model", "=", "account.move")], limit=1)[0]
+        self.schedule_activity("account.move", bill_id, summary, note)
+
+    def schedule_activity(self, model: str, rec_id: int, summary: str, note: str = "") -> None:
+        model_id = self.call("ir.model", "search", [("model", "=", model)], limit=1)[0]
         type_ids = self.call("mail.activity.type", "search", [("category", "=", "default")], limit=1) or \
             self.call("mail.activity.type", "search", [], limit=1)
         self.call("mail.activity", "create", {
             "res_model_id": model_id,
-            "res_id": bill_id,
+            "res_id": rec_id,
             "activity_type_id": type_ids[0],
             "summary": summary[:120],
             "note": note,
@@ -158,7 +161,10 @@ class Odoo:
         })
 
     def close_reviews(self, bill_id: int, feedback: str) -> None:
-        ids = self.call("mail.activity", "search", [("res_model", "=", "account.move"), ("res_id", "=", bill_id)])
+        self.close_activities("account.move", bill_id, feedback)
+
+    def close_activities(self, model: str, rec_id: int, feedback: str) -> None:
+        ids = self.call("mail.activity", "search", [("res_model", "=", model), ("res_id", "=", rec_id)])
         if ids:
             self.call("mail.activity", "action_feedback", ids, feedback=feedback)
 

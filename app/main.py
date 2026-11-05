@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config, mail, pipeline, store
-from scripts.demo_data import INVOICES
+from scripts.demo_data import INVOICES, OTHER_DOCUMENTS, RECEIPTS, employee_email
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="Agentic Accounts Payable · watsonx Orchestrate", version="3.0.0")
@@ -61,14 +61,14 @@ def overview():
     _sync()
     docs = store.all_docs()
     done = [d for d in docs if d["status"] not in ("processing", "failed")]
-    touchless = [d for d in done if d["status"] == "posted"]
+    touchless = [d for d in done if d["status"] in ("posted", "verified", "received")]
     open_ex = [d for d in docs if d["status"] == "exception"]
     blocked = [d for d in docs if d["status"] == "blocked"]
     tds = sum(((d["controls"] or {}).get("tds") or {}).get("amount") or 0
               for d in docs if d["status"] in ("posted", "approved"))
     reasons = Counter(c.get("label", c["title"]) for d in docs if d["status"] in ("exception", "blocked", "approved", "rejected")
                       for c in (d["controls"] or {}).get("checks", [])
-                      if c["status"] == "fail" and (d["status"] != "blocked" or c["code"] == "DUP-01"))
+                      if c["status"] == "fail" and (d["status"] != "blocked" or c["code"].startswith("DUP-")))
     cycles = [d["meta"].get("cycle_seconds") for d in done if d["meta"].get("cycle_seconds")]
     return {
         "processed": len(done),
@@ -83,6 +83,7 @@ def overview():
         "avg_cycle_seconds": round(sum(cycles) / len(cycles), 1) if cycles else None,
         "exception_reasons": reasons.most_common(8),
         "status_counts": Counter(d["status"] for d in docs),
+        "by_type": Counter(d["meta"].get("doc_type") or "pending" for d in docs),
     }
 
 
@@ -91,10 +92,19 @@ def _summary(d: dict) -> dict:
     c = d["controls"] or {}
     return {k: d[k] for k in ("id", "created_at", "source", "file_name", "status", "stage", "vendor",
                               "invoice_number", "invoice_date", "total", "error")} | {
+        "doc_type": d["meta"].get("doc_type", ""),
         "po": (c.get("po") or {}).get("name"),
         "issues": [x.get("label", x["title"]) for x in c.get("checks", []) if x["status"] == "fail"],
-        "bill": ((d["erp"] or {}).get("bill") or {}).get("name"),
+        "erp_ref": _erp_ref(d["erp"] or {}),
     }
+
+
+def _erp_ref(erp: dict) -> str:
+    if erp.get("bill"):
+        return erp["bill"].get("name") or f"Draft bill #{erp['bill']['id']}"
+    if erp.get("expense"):
+        return f"Expense #{erp['expense']['id']}"
+    return (erp.get("receipt") or {}).get("name", "")
 
 
 @app.get("/api/documents")
@@ -112,14 +122,17 @@ def get_document(doc_id: int):
 
 
 @app.post("/api/documents")
-async def create_document(file: UploadFile | None = File(None), sample: str | None = Form(None)):
+async def create_document(file: UploadFile | None = File(None), sample: str | None = Form(None),
+                          submitted_by: str = Form("")):
     if file and file.filename:
-        return pipeline.submit(await file.read(), file.filename, "upload")
+        return pipeline.submit(await file.read(), file.filename, "upload", {"sender": submitted_by} if submitted_by else {})
     if sample:
         path = next((p for p in config.SAMPLES_DIR.iterdir() if p.name == Path(sample).name), None)
         if not path:
             raise HTTPException(404, f"Sample {sample} not found")
-        return pipeline.submit(path.read_bytes(), path.name, "sample")
+        spec = next((r for r in RECEIPTS if r["file"] == path.stem), None)
+        return pipeline.submit(path.read_bytes(), path.name, "sample",
+                               {"sender": employee_email(spec["submitted_by"])} if spec else {})
     raise HTTPException(400, "Upload a file or choose a sample")
 
 
@@ -171,8 +184,10 @@ def send_vendor_email(doc_id: int, body: dict = Body(...)):
 
 @app.get("/api/samples")
 def samples():
-    return [{"file": next((p.name for p in config.SAMPLES_DIR.glob(f"{i['file']}.*")), ""),
-             "scenario": i["scenario"], "number": i["number"]} for i in INVOICES]
+    kinds = [("supplier_invoice", INVOICES), ("expense_receipt", RECEIPTS), (None, OTHER_DOCUMENTS)]
+    return [{"file": next((p.name for p in config.SAMPLES_DIR.glob(f"{i['file']}.*")), ""), "scenario": i["scenario"],
+             "number": i.get("number") or i.get("po", ""), "kind": kind or i["kind"]}
+            for kind, items in kinds for i in items]
 
 
 @app.post("/api/inbox/poll")

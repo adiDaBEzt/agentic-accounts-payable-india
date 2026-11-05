@@ -21,8 +21,8 @@ for f in ap_process_tools.py ap_copilot_tools.py supplier_tools.py; do
   $ORCH tools import -k python -f "tools/$f" -p tools -r tools/requirements.txt -a odoo_erp
 done
 
-echo "▸ Flow: ap_invoice_processing_flow"
-$ORCH tools import -k flow -f flows/ap_invoice_processing_flow.py
+echo "▸ Flow: ap_document_processing_flow"
+$ORCH tools import -k flow -f flows/ap_document_processing_flow.py
 
 echo "▸ Model policy: gpt-oss-120b, Groq primary with Bedrock fallback"
 $ORCH models policy add -n ap_gpt_oss_fallback -m groq/openai/gpt-oss-120b -m bedrock/openai.gpt-oss-120b-1:0 \

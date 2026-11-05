@@ -1,13 +1,23 @@
 # Agentic Accounts Payable for India — IBM watsonx Orchestrate + ERP
 
-An AI agent that takes a supplier invoice from receipt to ERP posting. It applies the India-specific
-controls that generic AP tools leave to humans: GST regime and GSTIN validation, e-invoice IRN, TDS under
-the Income-tax Act 2025, GRN-based 3-way match, duplicate detection and vendor bank-account verification.
-Clean invoices post **touchless**. Exceptions are held in the ERP with a review task and a recommended
-action. Two conversational agents serve the AP team and suppliers from the same live ERP data.
+An AI agent that takes any accounts-payable document from receipt to the right action in the ERP. Drop in a
+supplier invoice, an employee's taxi or hotel receipt, a PO copy or a delivery challan; watsonx Orchestrate
+recognises the type and processes it. For invoices it applies the India-specific controls that generic AP
+tools leave to humans: GST regime and GSTIN validation, e-invoice IRN, TDS under the Income-tax Act 2025,
+GRN-based 3-way match, duplicate detection and vendor bank-account verification. Clean documents go through
+**touchless**. Exceptions are held in the ERP with a task and a recommended action. Two conversational
+agents serve the AP team and suppliers from the same live ERP data.
+
+| Document | What the agent does in Odoo |
+|---|---|
+| Supplier GST invoice | Controls, then posts the bill, holds a draft with a review task, or blocks a duplicate |
+| Employee expense receipt (taxi, hotel, meals, card slip) | Policy limits, corporate card, duplicate claims, GST credit eligibility (s.17(5)); approves the expense or holds it for the manager |
+| Purchase-order copy | Verifies vendor, lines, quantities and rates against the Odoo PO and logs the result on it |
+| Delivery challan / GRN | Books the goods receipt when quantities fit, and flags any bill held for a GRN shortage on that PO |
+| Anything else | Marked unsupported and left for a person; nothing changes in the ERP |
 
 Odoo is the reference ERP (vendor master, POs, goods receipts, vendor bills). The ERP layer is a thin
-client (`app/odoo.py`, `wxo/tools/erp.py`), so it can be replaced with SAP S/4HANA OData without touching
+client (`wxo/tools/apcore/odoo.py`, `wxo/tools/erp.py`), so it can be replaced with SAP S/4HANA OData without touching
 the flow or the agents.
 
 ## The business problem
@@ -28,33 +38,36 @@ PO matching, but these steps usually stay manual:
 ## Architecture
 
 ```
- Intake            watsonx Orchestrate: ap_invoice_processing_flow                                    Odoo
- ──────            ────────────────────────────────────────────────                                   ────
- Gmail AP inbox ┐  extract_invoice   docproc · WDU OCR + GST invoice schema, bounding boxes
- Upload / API ──┼▶ statutory_checks  script · GSTIN check digit, GST regime, slab, arithmetic
- AP Copilot ────┘  classify_payment  prompt · nature of payment for TDS (the only LLM step)
-                   erp_controls      tool · vendor, buyer GSTIN, duplicate, bank, IRN, PO/GRN, TDS ◀── live data
-                   route_invoice     decision table · AP routing policy
-                   route ── touchless → post_bill   tool · bill POSTED with GST + TDS              ──▶ bill
-                         ├ exception → hold_bill   tool · DRAFT bill + review task + chatter      ──▶ bill
-                         └ blocked   → end         duplicate, no bill
+ Intake            watsonx Orchestrate: ap_document_processing_flow                                    Odoo
+ ──────            ────────────────────────────────────────────────                                    ────
+ Gmail AP inbox ┐  read_document      docproc · OCR, picks the matching schema = document type, bboxes
+ Upload / API ──┼▶ identify_document  script · normalises fields for that type
+ AP Copilot ────┘  document type ─┬ supplier invoice → statutory_checks (script) → classify_payment (prompt)
+                                  │   → erp_controls (tool) → route_invoice (decision table)
+                                  │   → post_bill │ hold_bill │ blocked                              ──▶ bill
+                                  ├ expense receipt  → classify_expense (prompt) → expense_controls (tool)
+                                  │   → route_expense (decision table) → approve │ hold │ blocked     ──▶ expense
+                                  ├ purchase order   → verify_po (tool)                               ──▶ PO note
+                                  ├ delivery challan → receive_goods (tool)                           ──▶ GRN
+                                  └ other            → end (unsupported, left for a person)
 
- Workbench (Carbon UI): live progress, document viewer, approve / reject / email supplier, governance
+ Workbench (Carbon UI): live progress, document viewer, approve / reject, governance
  Agents: AP Copilot (internal) · Supplier Desk (external), on the same Odoo tools
  Control plane: guardrails, PII and IFSC masking, secrets detection, tool rate limits, model fallback
 ```
 
 **Why the work is split this way**
 
-- **The process is a flow, not an agent.** Every invoice runs the same steps in the same order, so it is a
-  flow with typed nodes. Agents are used only where conversation is the job: the AP team's questions and
+- **The process is a flow, not an agent.** Every document of a given type runs the same steps in the same
+  order, so it is a flow with typed nodes. Document processing itself picks the document type from the
+  schemas it is given, and a branch sends each type to its own steps. Agents are used only where conversation is the job: the AP team's questions and
   approvals, and supplier status queries.
-- **Deterministic where it matters.** Numbers, GSTINs, tax regimes and ERP matches are checked in code (a
-  script node and an Odoo tool node). The LLM classifies only what needs judgement: the nature of payment
-  for TDS.
-- **Policy is a decision table.** Routing (duplicate → block, any failed control → review, above the
-  ₹25 lakh touchless limit → sign-off, otherwise post) is a decision-table node that AP can change in the
-  flow editor without code.
+- **Deterministic where it matters.** Numbers, GSTINs, tax regimes, policy limits and ERP matches are
+  checked in code (script and Odoo tool nodes). The LLM classifies only what needs judgement: the nature of
+  payment for TDS, and the expense category.
+- **Policy is a decision table.** Invoice routing (duplicate → block, any failed control → review, above
+  the ₹25 lakh touchless limit → sign-off, otherwise post) and expense routing are decision-table nodes
+  that AP can change in the flow editor without code.
 - **One engine.** `wxo/tools/apcore` (India rules, Odoo client, controls, booking) is deployed with the
   tools and imported by the workbench for reviewer actions, so the rules never diverge.
 - **The ERP is the system of record.** Bills, review tasks (`mail.activity`) and the agent's control log
@@ -84,16 +97,16 @@ Model-level controls on the tenant bind to custom (virtual) models, so the fallb
 
 | Path | Purpose |
 |---|---|
-| `wxo/flows/ap_invoice_processing_flow.py` | The process: docproc → script → prompt → ERP tool → decision table → post / hold |
-| `wxo/tools/apcore/` | Shared engine: India rules, Odoo client, ERP controls, bill booking (standard library only) |
+| `wxo/flows/ap_document_processing_flow.py` | The process: read and classify → branch per document type → controls → decision tables → Odoo |
+| `wxo/tools/apcore/` | Shared engine: India rules, Odoo client, invoice controls and booking, expense policy, PO / GRN handling |
 | `wxo/tools/` | Flow process tools and agent tools; Odoo credentials come from the `odoo_erp` key-value connection |
 | `wxo/controls/` | Control-plane policies (guardrails, PII, regex, rate limits, secrets) |
 | `wxo/agents/` | `ap_copilot_agent` (internal) and `supplier_desk_agent` (external) |
 | `wxo/deploy.sh` | Creates the connection and imports tools, flow, model policy, agents and controls |
 | `app/` | FastAPI workbench (`pipeline.py`, `wxo.py`, `mail.py`, `store.py`) and the Carbon UI in `static/` |
-| `scripts/setup_odoo.py` | Idempotent ERP provisioning: apps, GST/TDS taxes, buyer, vendors, products, POs, GRNs |
+| `scripts/setup_odoo.py` | Idempotent ERP provisioning: apps, GST/TDS taxes, buyer, vendors, products, POs, GRNs, employees, expense categories |
 | `scripts/demo_data.py` | One spec for the demo world, shared by the ERP seed and the invoice generator |
-| `scripts/generate_samples.py` | Renders the GST tax invoices in `samples/` |
+| `scripts/generate_samples.py` | Renders the 13 sample documents in `samples/` |
 
 ## Setup
 
@@ -120,7 +133,8 @@ drafted from the failed controls. Set `VENDOR_EMAIL_OVERRIDE` during demos so no
 
 ## Five-minute demo
 
-Use the reset icon in the header first; it removes the bills the agent created so every run starts clean.
+Use the reset icon in the header first. It removes the bills and expenses the agent created and reverses
+the goods it received, so every run starts clean.
 
 1. **Touchless:** process `01_sahyadri…`. The 3-way match passes against GRN WH/IN/00001 and BILL/… posts
    in Odoo with CGST + SGST. Open the bill in Odoo to show the agent's control log in the chatter.
@@ -132,15 +146,24 @@ Use the reset icon in the header first; it removes the bills the agent created s
    (red boxes on the document). Show **Email supplier** with the supplier-safe draft.
 5. **Price + IRN:** `05_konkan…`. Unit price 7.1% above the PO and no IRN from an e-invoice-mandated vendor.
 6. **Duplicate:** `06_…_scan.png`, a skewed, noisy phone scan of invoice 01, is blocked before a bill exists.
-7. **Governance:** open the Governance page, then **Try a jailbreak on Supplier Desk**; the content
+7. **Expense receipts:** `07_receipt_cityride_taxi` is matched to Ananya's corporate card ··4821 and
+   approved touchless. `08_receipt_hotel_sabarmati` is ₹9,912 a night against a ₹6,000 limit and held for
+   her manager; GST is booked as cost because the hotel is in Gujarat. `09_receipt_coastal_kitchen` is
+   within the per-head limit, with GST credit blocked under s.17(5). `10_…_photo.jpg` is the same taxi
+   receipt submitted by Rahul: blocked as a duplicate, and the card is not his.
+8. **PO and challan:** `11_po_copy…` is verified against MSC-PO-26-0161. `12_challan_narmada…` books the
+   2 t backorder as a goods receipt and notes on Narmada's held bill that the shortage is resolved.
+   `13_letter…` is not an AP document and is left for a person.
+9. **Governance:** open the Governance page, then **Try a jailbreak on Supplier Desk**; the content
    guardrail blocks it before the agent runs.
-8. **Assistants:** *"What needs my attention today?"* (Copilot), then the Supplier Desk with
+10. **Assistants:** *"What needs my attention today?"* and *"Which expense claims are waiting for
+   approval?"* (Copilot), then the Supplier Desk with
    *"Status of KPA/26-27/073? GSTIN 29AAQFK2209M1ZU"*, then the same question with another supplier's GSTIN.
 
 ## Notes
 
 - TDS sections follow the Income-tax Act, 2025 numbering used by Odoo's `l10n_in` taxes, with legacy 1961
-  references shown alongside. Rates and thresholds in `app/india.py` are demo defaults; confirm them with
+  references shown alongside. Rates and thresholds in `wxo/tools/apcore/india.py` and the expense policy in `apcore/expenses.py` are demo defaults; confirm them with
   your tax team.
 - GST slabs follow GST 2.0 (5 / 18 / 40%).
 - All companies, GSTINs and bank accounts in the samples are fictional.

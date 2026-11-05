@@ -16,10 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import app  # noqa: E402,F401  (puts the apcore engine on the path)
 
+from apcore.expenses import EXPENSE_POLICY, TAG_CARD_PREFIX  # noqa: E402
 from apcore.india import TAG_EINVOICE, TAG_TDS_PREFIX, TDS_RULES  # noqa: E402
 from apcore.odoo import Odoo, OdooError  # noqa: E402
 from app import config  # noqa: E402
-from scripts.demo_data import BUYER, PRODUCTS, PURCHASE_ORDERS, VENDORS, vendor  # noqa: E402
+from scripts.demo_data import BUYER, EMPLOYEES, PRODUCTS, PURCHASE_ORDERS, VENDORS, employee_email, vendor  # noqa: E402
 
 odoo = Odoo(config.ODOO_URL, config.ODOO_DB, config.ODOO_USERNAME, config.ODOO_PASSWORD)
 NO_ACTIVE_TEST = {"context": {"active_test": False}}
@@ -164,6 +165,37 @@ def create_purchase_orders(product_ids):
         print(f"  {spec['name']} → {v['name']} · received {summary} · GRN {[r['name'] for r in po['receipts']]}")
 
 
+def upsert_employees():
+    ids = {}
+    for e in EMPLOYEES:  # managers first, so parent_id resolves
+        tags = []
+        if e["card"]:
+            name = f"{TAG_CARD_PREFIX}{e['card']}"
+            found = odoo.search_read("hr.employee.category", [("name", "=", name)], ["id"])
+            tags = [found[0]["id"] if found else odoo.call("hr.employee.category", "create", {"name": name})]
+        vals = {"name": e["name"], "job_title": e["job"], "work_email": employee_email(e["key"]),
+                "category_ids": [(6, 0, tags)], "parent_id": ids.get(e["manager"], False)}
+        found = odoo.search_read("hr.employee", [("work_email", "=", vals["work_email"])], ["id"])
+        if found:
+            odoo.call("hr.employee", "write", [found[0]["id"]], vals)
+            ids[e["key"]] = found[0]["id"]
+        else:
+            ids[e["key"]] = odoo.call("hr.employee", "create", vals)
+        print(f"  {e['name']:<14} {e['job']:<22} card {'··' + e['card'] if e['card'] else '—'}")
+
+
+def upsert_expense_products():
+    for cat, p in EXPENSE_POLICY.items():
+        found = odoo.search_read("product.product", [("default_code", "=", p["code"])], ["id"])
+        vals = {"name": p["name"], "default_code": p["code"], "can_be_expensed": True, "type": "service",
+                "standard_price": 0.0, "supplier_taxes_id": [(5, 0, 0)]}
+        if found:
+            odoo.call("product.product", "write", [found[0]["id"]], vals)
+        else:
+            odoo.call("product.product", "create", vals)
+        print(f"  {p['name']:<24} limit ₹{p['limit']:,} per {p['per']}")
+
+
 if __name__ == "__main__":
     print(f"Odoo: {odoo.url} / {odoo.db}")
     step("Installing Purchase + Inventory"); install_modules(["purchase", "stock"])
@@ -172,4 +204,7 @@ if __name__ == "__main__":
     step("Vendor master"); upsert_vendors()
     step("Products"); pids = upsert_products()
     step("Purchase orders & receipts"); create_purchase_orders(pids)
+    step("Installing Employees + Expenses"); install_modules(["hr", "hr_expense"])
+    step("Employees & corporate cards"); upsert_employees()
+    step("Expense categories"); upsert_expense_products()
     print("\nDone.")

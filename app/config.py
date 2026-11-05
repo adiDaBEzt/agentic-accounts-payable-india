@@ -23,7 +23,7 @@ _load_dotenv(ROOT / ".env")
 
 WXO_INSTANCE_URL = os.environ.get("WXO_INSTANCE_URL", "").rstrip("/")
 WXO_API_KEY = os.environ.get("WXO_API_KEY", "")
-WXO_FLOW_NAME = os.environ.get("WXO_FLOW_NAME", "ap_invoice_processing_flow")
+WXO_FLOW_NAME = os.environ.get("WXO_FLOW_NAME", "ap_document_processing_flow")
 WXO_COPILOT_AGENT = os.environ.get("WXO_COPILOT_AGENT", "ap_copilot_agent")
 WXO_SUPPLIER_AGENT = os.environ.get("WXO_SUPPLIER_AGENT", "supplier_desk_agent")
 
