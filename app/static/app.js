@@ -208,9 +208,9 @@ async function viewOverview(view = $("#view")) {
           : `<p class="secondary">No exceptions yet. Process the sample documents to see GST, TDS, GRN, price, bank, expense-policy and duplicate controls in action.</p>`}
       </div>
     </div>`;
-  $("#process-btn").onclick = openProcessModal;
+  $("#process-btn").onclick = () => openProcessModal();
   bindRows(view);
-  $(".empty .btn", view)?.addEventListener("click", openProcessModal);
+  $(".empty .btn", view)?.addEventListener("click", () => openProcessModal());
   clearInterval(state.timer);
   if (o.in_flight) poll(async () => location.hash.startsWith("#/overview") && viewOverview(view), 4000);
 }
@@ -239,8 +239,8 @@ async function viewInvoices(view) {
       ${rows.length ? invoiceTable(rows) : docs.length ? `<div class="empty"><p>No documents in this view.</p></div>` : emptyState()}
     </div>`;
   $$(".tabs button", view).forEach((b) => (b.onclick = () => { currentFilter = b.dataset.f; viewInvoices(view); }));
-  $("#process-btn").onclick = openProcessModal;
-  $(".empty .btn", view)?.addEventListener("click", openProcessModal);
+  $("#process-btn").onclick = () => openProcessModal();
+  $(".empty .btn", view)?.addEventListener("click", () => openProcessModal());
   $("#inbox-btn").onclick = checkInbox;
   bindRows(view);
   clearInterval(state.timer);
@@ -274,13 +274,25 @@ async function checkInbox() {
 const sampleTone = (t) => (/^(Touchless|Purchase order|Delivery challan)/.test(t) ? "green" : /^Blocked/.test(t) ? "magenta"
   : /^Unsupported/.test(t) ? "warm" : /^Expense — (company-card|client)/.test(t) ? "green" : "red");
 
-async function openProcessModal() {
+const ACCEPTED = /\.(pdf|png|jpe?g|tiff?)$/i;
+
+// Dropping a file anywhere in the app opens the process dialog with it, instead of the browser opening the file.
+window.addEventListener("dragover", (e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); });
+window.addEventListener("drop", (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  const dz = $("#dz");
+  dz ? dz.dispatchEvent(new CustomEvent("files", { detail: e.dataTransfer.files })) : openProcessModal(e.dataTransfer.files);
+});
+
+async function openProcessModal(initialFiles) {
   const samples = await api("/api/samples");
-  let file = null, sample = null;
+  let files = [], sample = null;
   const root = modal({
     label: "New document", title: "Process a document", size: "lg",
-    body: `<div class="dropzone" id="dz" tabindex="0">Drag and drop a file here or click to upload
-        <span class="helper">Invoice, receipt, PO copy or delivery challan · PDF, PNG, JPG or TIFF · watsonx Orchestrate recognises the type</span><input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" hidden></div>
+    body: `<div class="dropzone" id="dz" tabindex="0" role="button"><span id="dz-text">Drag and drop files here or click to upload</span>
+        <span class="helper" id="dz-help">Invoices, receipts, PO copies or delivery challans · PDF, PNG, JPG or TIFF · several at once is fine</span></div>
+        <input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden>
       <p class="helper" style="margin-bottom:8px">Or run a sample scenario — each exercises a different document type or family of controls against the live ERP</p>
       <div class="sample-list">${Object.keys(DOC_TYPES).filter((k) => k !== "other").concat(["letter"]).map((kind) => {
         const list = samples.filter((s) => s.kind === kind); if (!list.length) return "";
@@ -290,22 +302,44 @@ async function openProcessModal() {
         <span class="tag ${sampleTone(s.scenario)} sm">${esc(s.scenario.split(" —")[0])}</span></label>`).join("");
       }).join("")}</div>`,
     primary: { text: "Process", busy: "Submitting…", onClick: async () => {
-      if (!file && !sample) { toast("warning", "Choose a file or a sample first."); return false; }
-      const fd = new FormData();
-      file ? fd.append("file", file) : fd.append("sample", sample);
-      const doc = await api("/api/documents", { method: "POST", body: fd });
-      location.hash = `#/invoices/${doc.id}`;
+      if (!files.length && !sample) { toast("warning", "Choose a file or a sample first."); return false; }
+      const send = (fd) => api("/api/documents", { method: "POST", body: fd });
+      const docs = [];
+      if (sample) { const fd = new FormData(); fd.append("sample", sample); docs.push(await send(fd)); }
+      for (const f of files) { const fd = new FormData(); fd.append("file", f); docs.push(await send(fd)); }
+      location.hash = docs.length === 1 ? `#/invoices/${docs[0].id}` : "#/invoices";
+      if (docs.length > 1) toast("success", `${docs.length} documents submitted.`, " Each is processed in parallel.");
     } },
   });
   const dz = $("#dz", root), fi = $("#fi", root);
-  const pick = (f) => { file = f; sample = null; $$("input[name=sample]", root).forEach((r) => (r.checked = false)); $$(".sample", root).forEach((s) => s.classList.remove("selected")); dz.innerHTML = `${icon("document")} ${esc(f.name)} <span class="helper">${(f.size / 1024).toFixed(0)} KB · click to change</span>`; dz.append(fi); };
+  const pick = (list) => {
+    const all = [...list], bad = all.filter((f) => !ACCEPTED.test(f.name));
+    if (bad.length) toast("warning", "Skipped unsupported file(s):", ` ${bad.map((f) => f.name).join(", ")}. Use PDF, PNG, JPG or TIFF.`);
+    files = all.filter((f) => ACCEPTED.test(f.name));
+    if (!files.length) return;
+    sample = null;
+    $$("input[name=sample]", root).forEach((r) => (r.checked = false));
+    $$(".sample", root).forEach((s) => s.classList.remove("selected"));
+    const kb = files.reduce((n, f) => n + f.size, 0) / 1024;
+    $("#dz-text", root).innerHTML = `${icon("document")} ${esc(files.length === 1 ? files[0].name : `${files.length} files selected`)}`;
+    $("#dz-help", root).textContent = `${files.length > 1 ? files.map((f) => f.name).join(", ") + " · " : ""}${kb.toFixed(0)} KB · click to change`;
+    dz.classList.add("has-file");
+  };
   dz.onclick = () => fi.click();
-  fi.onchange = () => fi.files[0] && pick(fi.files[0]);
-  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
-  dz.ondragleave = () => dz.classList.remove("over");
-  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); e.dataTransfer.files[0] && pick(e.dataTransfer.files[0]); };
+  dz.onkeydown = (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), fi.click());
+  fi.onchange = () => fi.files.length && pick(fi.files);
+  // The whole dialog accepts the drop, so a near miss doesn't open the file in the browser.
+  const modalEl = $(".modal", root);
+  let depth = 0;
+  modalEl.addEventListener("dragenter", (e) => { e.preventDefault(); depth++; dz.classList.add("over"); });
+  modalEl.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  modalEl.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; dz.classList.remove("over"); } });
+  modalEl.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); depth = 0; dz.classList.remove("over"); e.dataTransfer.files.length && pick(e.dataTransfer.files); });
+  dz.addEventListener("files", (e) => pick(e.detail));
+  if (initialFiles?.length) pick(initialFiles);
   $$("input[name=sample]", root).forEach((r) => (r.onchange = () => {
-    sample = r.value; file = null;
+    sample = r.value; files = [];
+    $("#dz-text", root).textContent = "Drag and drop files here or click to upload"; dz.classList.remove("has-file");
     $$(".sample", root).forEach((s) => s.classList.toggle("selected", s.dataset.file === sample));
   }));
 }

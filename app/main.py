@@ -121,11 +121,19 @@ def get_document(doc_id: int):
     return doc
 
 
+ACCEPTED_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+
+
 @app.post("/api/documents")
 async def create_document(file: UploadFile | None = File(None), sample: str | None = Form(None),
                           submitted_by: str = Form("")):
     if file and file.filename:
-        return pipeline.submit(await file.read(), file.filename, "upload", {"sender": submitted_by} if submitted_by else {})
+        if Path(file.filename).suffix.lower() not in ACCEPTED_TYPES:
+            raise HTTPException(400, f"{file.filename}: unsupported file type. Use PDF, PNG, JPG or TIFF.")
+        try:
+            return pipeline.submit(await file.read(), file.filename, "upload", {"sender": submitted_by} if submitted_by else {})
+        except pipeline.UnreadableDocument as exc:
+            raise HTTPException(400, str(exc))
     if sample:
         path = next((p for p in config.SAMPLES_DIR.iterdir() if p.name == Path(sample).name), None)
         if not path:

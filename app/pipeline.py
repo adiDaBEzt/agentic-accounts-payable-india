@@ -29,11 +29,21 @@ _pool = ThreadPoolExecutor(max_workers=3)
 
 
 # ---- intake ------------------------------------------------------------------------------
+class UnreadableDocument(ValueError):
+    pass
+
+
 def submit(data: bytes, filename: str, source: str = "upload", meta: dict | None = None) -> dict:
     safe = Path(filename).name.replace(" ", "_")
     path = config.UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{safe}"
     path.write_bytes(data)
-    doc = store.create(source=source, file_name=safe, file_path=str(path), preview_path=_preview(path),
+    try:
+        preview = _preview(path)
+    except Exception as exc:  # corrupt PDF, password-protected file, or an image format Pillow cannot read
+        path.unlink(missing_ok=True)
+        raise UnreadableDocument(f"{filename} could not be opened ({exc.__class__.__name__}). Check the file isn't "
+                                 "damaged or password-protected.") from exc
+    doc = store.create(source=source, file_name=safe, file_path=str(path), preview_path=preview,
                        status="processing", stage="received", meta=meta or {})
     store.log(doc["id"], "intake", "done", f"Received {safe} via {source} ({len(data) / 1024:.0f} KB)")
     _pool.submit(_run, doc["id"])
