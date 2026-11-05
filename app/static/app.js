@@ -160,7 +160,17 @@ function poll(fn, ms) {
 }
 
 // ---- router ---------------------------------------------------------------------------------
+let loadedBuild = null;
+async function reloadIfUpdated() {
+  try {
+    const { build } = await api("/api/build");
+    if (loadedBuild && build !== loadedBuild) location.reload();
+    loadedBuild = build;
+  } catch { /* server restarting; try again on the next navigation */ }
+}
+
 function route() {
+  reloadIfUpdated();
   clearInterval(state.timer);
   const [, page = "overview", arg] = location.hash.split("/");
   $$(".side-nav a[data-route]").forEach((a) => a.classList.toggle("active", a.dataset.route === page));

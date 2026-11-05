@@ -241,6 +241,12 @@ if config.GMAIL_POLL_SECONDS and mail.configured():
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+@app.get("/api/build")
+def build():
+    """Changes whenever the UI files change; open tabs reload themselves instead of running stale code."""
+    return {"build": int(max((STATIC / f).stat().st_mtime for f in ("index.html", "app.js", "app.css")))}
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
