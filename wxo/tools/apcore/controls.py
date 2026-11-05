@@ -1,16 +1,19 @@
 """ERP-side AP controls, evaluated against live Odoo data after the wxO flow has extracted the invoice.
+Runs inside the flow's `erp_controls` tool node; the routing decision itself is the flow's decision table.
 
 Every control returns the same shape as the flow's statutory checks:
     {code, category, status: pass|warn|fail|info, title, detail, action?}
-and the engine decides: touchless (post), exception (draft + review task) or blocked (no bill).
+plus the counts the flow's decision table routes on: touchless (post), exception (draft + review task)
+or blocked (no bill).
 """
 
 from datetime import date
 from difflib import SequenceMatcher
 
-from app import config
-from app.india import TDS_RULES, inr
-from app.odoo import Odoo
+from .india import TDS_RULES, inr
+from .odoo import Odoo
+
+PRICE_TOLERANCE_PCT = 2.0
 
 
 FAIL_LABELS = {
@@ -147,7 +150,7 @@ def evaluate(invoice: dict, payment_nature: dict, odoo: Odoo) -> dict:
 
 
 def _price_and_qty_checks(checks, pairs, po):
-    tol = config.PRICE_TOLERANCE_PCT
+    tol = PRICE_TOLERANCE_PCT
     price_issues, qty_issues, unmatched, variance = [], [], [], 0.0
     for il, pl in pairs:
         if not pl:
@@ -227,15 +230,10 @@ def _decide(checks, invoice, vendor, po, pairs, tds, company) -> dict:
     fails = [c for c in checks if c["status"] == "fail"]
     for c in fails:
         c["label"] = FAIL_LABELS.get(c["code"], c["title"])
-    if any(c["code"] == "DUP-01" for c in fails):
-        decision = "blocked"
-    elif fails:
-        decision = "exception"
-    else:
-        decision = "touchless"
     total = float(invoice.get("total_amount") or 0)
-    return {
-        "decision": decision,
+    return {  # the counts feed the flow's routing decision table
+        "duplicates": sum(c["code"] == "DUP-01" for c in fails),
+        "exceptions": len(fails),
         "checks": checks,
         "vendor": vendor and {k: vendor[k] for k in ("id", "name", "vat", "email", "tags", "url", "tds_nature",
                                                       "einvoice_applicable")},

@@ -1,4 +1,4 @@
-"""watsonx Orchestrate REST client: IAM auth, file upload, async flow runs and agent chat."""
+"""watsonx Orchestrate REST client: IAM auth, file upload, async flow runs, agent chat and controls."""
 
 import json
 import threading
@@ -121,6 +121,7 @@ class WxO:
                 break
         if status.get("status") != "completed":
             raise WxOError(f"Agent run {status.get('status', 'timed out')}: {status.get('last_error') or ''}")
+        blocked = ((status.get("result") or {}).get("data") or {}).get("error_code") == "USER_CONFIGURED_CONTROL_BLOCKED"
         messages = self._req("GET", f"/threads/{thread_id}/messages")
         reply, tools = "", []
         for m in reversed(messages):
@@ -133,4 +134,20 @@ class WxO:
                 for d in step.get("step_details") or []:
                     for call in d.get("tool_calls") or []:
                         tools.append(call.get("name"))
-        return {"reply": reply, "thread_id": thread_id, "tools": sorted(set(filter(None, tools)))}
+        return {"reply": reply, "thread_id": thread_id, "tools": sorted(set(filter(None, tools))), "blocked": blocked}
+
+    # ---- control plane ---------------------------------------------------------------
+    def controls(self) -> dict:
+        """Controls (policy bindings) on the tenant with the agents, tools and models they protect, plus the
+        model each AP agent runs on."""
+        agents = {a["id"]: a for a in self._req("GET", "/agents")}
+        tools = {t["id"]: t["name"] for t in self._req("GET", "/tools")}
+        items = [{
+            "name": b["display_name"] or b["name"], "type": b["artifact_display_name"], "description": b["description"],
+            "hooks": b["hooks"], "priority": b["priority"], "active": b["is_active"], "config": b.get("config") or {},
+            "agents": [agents[i]["name"] for i in b.get("agent_ids") or [] if i in agents],
+            "tools": [tools.get(i, i) for i in b.get("tool_ids") or []], "models": b.get("model_names") or [],
+        } for b in self._req("GET", "/policies/bindings")["bindings"]]
+        ap_agents = {a["name"]: a.get("llm", "") for a in agents.values()
+                     if a["name"] in (config.WXO_COPILOT_AGENT, config.WXO_SUPPLIER_AGENT)}
+        return {"controls": sorted(items, key=lambda c: c["priority"]), "agent_models": ap_agents}

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import app  # noqa: E402,F401  (puts the apcore engine on the path)
 
 import pypdfium2 as pdfium  # noqa: E402
 from PIL import Image, ImageFilter  # noqa: E402
@@ -19,7 +20,7 @@ from reportlab.lib.colors import HexColor, black  # noqa: E402
 from reportlab.lib.pagesizes import A4  # noqa: E402
 from reportlab.pdfgen import canvas  # noqa: E402
 
-from app.india import STATE_CODES, amount_in_words, inr, pan_from_gstin  # noqa: E402
+from apcore.india import STATE_CODES, amount_in_words, inr, pan_from_gstin  # noqa: E402
 from scripts.demo_data import BUYER, INVOICES, PRODUCTS, PURCHASE_ORDERS, vendor  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "samples"

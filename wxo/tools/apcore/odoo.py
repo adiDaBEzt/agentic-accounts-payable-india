@@ -4,8 +4,7 @@ import xmlrpc.client
 from datetime import date
 from functools import lru_cache
 
-from app import config
-from app.india import TAG_EINVOICE, TAG_TDS_PREFIX, TDS_RULES
+from .india import TAG_EINVOICE, TAG_TDS_PREFIX, TDS_RULES
 
 
 class OdooError(RuntimeError):
@@ -13,11 +12,9 @@ class OdooError(RuntimeError):
 
 
 class Odoo:
-    def __init__(self, url=None, db=None, username=None, password=None):
-        self.url = (url or config.ODOO_URL).rstrip("/")
-        self.db = db or config.ODOO_DB
-        self.username = username or config.ODOO_USERNAME
-        self.password = password or config.ODOO_PASSWORD
+    def __init__(self, url: str, db: str, username: str, password: str):
+        self.url = url.rstrip("/")
+        self.db, self.username, self.password = db, username, password
         self._uid = None
 
     # ---- transport -------------------------------------------------------------------

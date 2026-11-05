@@ -1,7 +1,9 @@
-"""Receipt-to-posting pipeline:
+"""Workbench side of the process:
 
-    intake → wxO object storage → wxO flow (extract · GST checks · TDS classification)
-           → ERP controls on live Odoo data → decision → Odoo bill (posted | draft + review task) → notify
+    intake → wxO object storage → ap_invoice_processing_flow (extract · GST checks · TDS classification ·
+    ERP controls · routing decision table · Odoo bill posted | held | blocked) → notify the supplier
+
+Reviewer actions on held bills (approve / reject / email) and the ERP sync run here.
 """
 
 import html
@@ -14,21 +16,16 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image
 
-from app import config, controls, mail, store
-from app.india import inr
-from app.odoo import Odoo
+from apcore import controls
+from apcore.india import inr
+from apcore.odoo import Odoo
+from app import config, mail, store
 from app.wxo import WxO
 
 wxo = WxO()
-odoo = Odoo()
+odoo = Odoo(config.ODOO_URL, config.ODOO_DB, config.ODOO_USERNAME, config.ODOO_PASSWORD)
 _pool = ThreadPoolExecutor(max_workers=3)
 
-NODE_LABELS = {
-    "extract_invoice": "Document extraction (WDU)",
-    "statutory_checks": "GST & arithmetic checks",
-    "classify_payment": "Nature-of-payment classification",
-}
-ICON = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️"}
 
 
 # ---- intake ------------------------------------------------------------------------------
@@ -62,31 +59,30 @@ def _run(doc_id: int) -> None:
         store.log(doc_id, "upload", "done", "Stored in watsonx Orchestrate object storage", _ms(t0))
 
         t1 = time.perf_counter()
-        store.log(doc_id, "flow", "running", "ap_invoice_extraction_flow started")
+        store.log(doc_id, "flow", "running", "ap_invoice_processing_flow started")
         run = wxo.run_flow(config.WXO_FLOW_NAME, {"document_ref": ref},
-                           on_progress=lambda node: store.log(doc_id, "flow", "running",
-                                                              f"{NODE_LABELS.get(node, node)} complete"))
+                           on_progress=lambda node: store.log(doc_id, "flow", "running", f"{node} complete"))
         out = run["output"]
         inv = out.get("invoice") or {}
-        store.log(doc_id, "flow", "done", f"Flow instance {run['instance_id'][:8]}", _ms(t1),
-                  instance_id=run["instance_id"],
-                  nodes=[{**n, "label": NODE_LABELS.get(n["name"], n["name"])} for n in run["nodes"]])
-        store.update(doc_id, stage="validating", extraction=out, vendor=inv.get("supplier_name"),
-                     invoice_number=inv.get("invoice_number"), invoice_date=inv.get("invoice_date"),
-                     total=inv.get("total_amount"))
-
-        t2 = time.perf_counter()
-        result = controls.evaluate(inv, out.get("payment_nature") or {}, odoo)
-        fails = [c for c in result["checks"] if c["status"] == "fail"]
-        store.log(doc_id, "controls", "done",
-                  f"{len(result['checks'])} controls · {len(fails)} exception(s) · decision: {result['decision']}", _ms(t2))
-        store.update(doc_id, stage="posting", controls=result)
-
-        t3 = time.perf_counter()
-        erp = _act(doc_id, inv, result)
-        store.log(doc_id, "erp", "done", erp["summary"], _ms(t3))
+        booked = out.get("posted") or out.get("held") or {}
+        result = booked.pop("controls", None) or out.get("controls") or {}
+        result.update(decision=out.get("route") or "exception", route_reason=out.get("route_reason") or "")
+        erp = booked
+        if result["decision"] == "blocked":
+            dup = next((c for c in result.get("checks", []) if c["code"] == "DUP-01"), {})
+            erp = {"summary": "Blocked — no bill created", "bill": None, "reason": dup.get("detail", "")}
+        extraction = {k: v for k, v in out.items() if k not in ("controls", "posted", "held", "route", "route_reason")}
+        fails = [c for c in result.get("checks", []) if c["status"] == "fail"]
+        store.log(doc_id, "flow", "done", f"Flow instance {run['instance_id'][:8]} · route: {result['decision']}",
+                  _ms(t1), instance_id=run["instance_id"],
+                  nodes=[{**n, "label": n["name"]} for n in run["nodes"]])
+        store.log(doc_id, "controls", "done", f"{len(result.get('checks', []))} controls · {len(fails)} exception(s)"
+                  + (f" · {result['route_reason']}" if result["route_reason"] else ""))
+        store.log(doc_id, "erp", "done", erp.get("summary", ""))
         status = {"touchless": "posted", "exception": "exception", "blocked": "blocked"}[result["decision"]]
-        store.update(doc_id, status=status, stage="done", erp=erp,
+        store.update(doc_id, status=status, stage="done", extraction=extraction, controls=result, erp=erp,
+                     vendor=inv.get("supplier_name"), invoice_number=inv.get("invoice_number"),
+                     invoice_date=inv.get("invoice_date"), total=inv.get("total_amount"),
                      meta={**doc["meta"], "cycle_seconds": round(time.perf_counter() - t0, 1)})
         _acknowledge(store.get(doc_id))
     except Exception as exc:  # surfaced in the UI with the failing step
@@ -96,38 +92,6 @@ def _run(doc_id: int) -> None:
 
 def _ms(t: float) -> float:
     return round((time.perf_counter() - t) * 1000)
-
-
-def _act(doc_id: int, inv: dict, result: dict) -> dict:
-    if result["decision"] == "blocked":
-        dup = next(c for c in result["checks"] if c["code"] == "DUP-01")
-        return {"summary": "Blocked — no bill created", "bill": None, "reason": dup["detail"]}
-    vendor = result["vendor"]
-    if not vendor:
-        return {"summary": "On hold — supplier not in vendor master, no bill created", "bill": None}
-    bill_id = odoo.create_bill(
-        partner_id=vendor["id"], ref=inv["invoice_number"], invoice_date=inv.get("invoice_date"),
-        lines=controls.bill_lines(result, odoo), po_name=(result.get("po") or {}).get("name", ""),
-        bank_id=result.get("bank_id"))
-    odoo.note("account.move", bill_id, _chatter_html(doc_id, result))
-    if result["decision"] == "touchless":
-        bill = odoo.post_bill(bill_id)
-        return {"summary": f"Posted {bill['name']} touchless", "bill": bill}
-    fails = [c for c in result["checks"] if c["status"] == "fail"]
-    odoo.schedule_review(bill_id, f"AP exception: {', '.join(c['label'] for c in fails)}",
-                         "<br/>".join(f"<b>{c['code']}</b> {html.escape(c['detail'])}" for c in fails))
-    bill = odoo.bill(bill_id)
-    return {"summary": f"Draft bill #{bill_id} on hold · review task assigned", "bill": bill}
-
-
-def _chatter_html(doc_id: int, result: dict) -> str:
-    rows = "".join(f"<tr><td>{ICON[c['status']]}</td><td><b>{c['code']}</b></td><td>{html.escape(c['title'])}</td>"
-                   f"<td>{html.escape(c['detail'])}</td></tr>" for c in result["checks"])
-    tds = result.get("tds") or {}
-    tds_line = (f"<p>TDS: Sec {tds['section']} ({tds['legacy']}) @ {tds['rate']:g}% = ₹{inr(tds['amount'])} · "
-                f"Net payable ₹{inr(result['net_payable'])}</p>") if tds.get("applicable") else ""
-    return (f"<p><b>AP agent (watsonx Orchestrate)</b> — decision: <b>{result['decision'].upper()}</b> "
-            f"· document #{doc_id}</p>{tds_line}<table>{rows}</table>")
 
 
 def _acknowledge(doc: dict) -> None:

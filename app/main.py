@@ -190,6 +190,11 @@ def reset():
 AGENTS = {"copilot": config.WXO_COPILOT_AGENT, "supplier": config.WXO_SUPPLIER_AGENT}
 
 
+@app.get("/api/controls")
+def controls():
+    return _action(pipeline.wxo.controls)
+
+
 @app.post("/api/chat")
 def chat(body: dict = Body(...)):
     agent = AGENTS.get(body.get("agent", "copilot"), config.WXO_COPILOT_AGENT)

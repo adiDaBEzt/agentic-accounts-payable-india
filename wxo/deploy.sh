@@ -16,17 +16,30 @@ for env in draft live; do
     -e "url=$ODOO_URL" -e "db=$ODOO_DB" -e "username=$ODOO_USERNAME" -e "password=$ODOO_PASSWORD" >/dev/null
 done
 
-echo "▸ Flow: ap_invoice_extraction_flow"
-$ORCH tools import -k flow -f flows/ap_invoice_extraction_flow.py
-
-echo "▸ Tools (Odoo via connection)"
-for f in ap_copilot_tools.py supplier_tools.py; do
+echo "▸ Tools (Odoo via connection; the flow's process tools first)"
+for f in ap_process_tools.py ap_copilot_tools.py supplier_tools.py; do
   $ORCH tools import -k python -f "tools/$f" -p tools -r tools/requirements.txt -a odoo_erp
 done
+
+echo "▸ Flow: ap_invoice_processing_flow"
+$ORCH tools import -k flow -f flows/ap_invoice_processing_flow.py
+
+echo "▸ Model policy: gpt-oss-120b, Groq primary with Bedrock fallback"
+$ORCH models policy add -n ap_gpt_oss_fallback -m groq/openai/gpt-oss-120b -m bedrock/openai.gpt-oss-120b-1:0 \
+  -s fallback --strategy-on-code 429 --strategy-on-code 500 --strategy-on-code 502 --strategy-on-code 503 \
+  --strategy-on-code 504 --retry-attempts 1 --retry-on-code 429 --retry-on-code 502 \
+  --display-name "gpt-oss-120b (Groq → Bedrock fallback)" --description "AP agents' LLM" >/dev/null 2>&1 || true
 
 echo "▸ Agents"
 $ORCH agents import -f agents/supplier_desk_agent.yaml
 $ORCH agents import -f agents/ap_copilot_agent.yaml
 $ORCH agents deploy -n supplier_desk_agent >/dev/null 2>&1 || true
 $ORCH agents deploy -n ap_copilot_agent >/dev/null 2>&1 || true
+
+echo "▸ Controls (control plane)"
+for f in controls/*.yaml; do
+  name=$(sed -n 's/^  name: //p' "$f")
+  $ORCH controls remove -n "$name" >/dev/null 2>&1 || true
+  $ORCH controls import -f "$f"
+done
 echo "Done."

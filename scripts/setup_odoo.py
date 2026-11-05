@@ -14,12 +14,14 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import app  # noqa: E402,F401  (puts the apcore engine on the path)
 
-from app.india import TAG_EINVOICE, TAG_TDS_PREFIX, TDS_RULES  # noqa: E402
-from app.odoo import Odoo, OdooError  # noqa: E402
+from apcore.india import TAG_EINVOICE, TAG_TDS_PREFIX, TDS_RULES  # noqa: E402
+from apcore.odoo import Odoo, OdooError  # noqa: E402
+from app import config  # noqa: E402
 from scripts.demo_data import BUYER, PRODUCTS, PURCHASE_ORDERS, VENDORS, vendor  # noqa: E402
 
-odoo = Odoo()
+odoo = Odoo(config.ODOO_URL, config.ODOO_DB, config.ODOO_USERNAME, config.ODOO_PASSWORD)
 NO_ACTIVE_TEST = {"context": {"active_test": False}}
 
 

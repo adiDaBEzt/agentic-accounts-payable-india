@@ -17,6 +17,7 @@ SUPPLIER_REASONS = {
     "Wrong buyer GSTIN": "The invoice is addressed to an incorrect GSTIN",
     "PO not found": "The purchase order reference could not be matched",
     "Line not on PO": "Some invoice lines are not on the purchase order",
+    "Above ₹25 lakh touchless limit": "The invoice is with our approver for sign-off",
 }
 
 

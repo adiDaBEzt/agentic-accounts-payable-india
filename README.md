@@ -28,39 +28,69 @@ PO matching, but these steps usually stay manual:
 ## Architecture
 
 ```
- Intake                watsonx Orchestrate flow               ERP controls (live Odoo)        Decision → Odoo
- ───────               ─────────────────────────              ─────────────────────────       ───────────────
- Gmail AP inbox ─┐     ┌ extract_invoice   (docproc / WDU) ┐  vendor master · GSTIN          touchless → bill POSTED
- Upload / API ───┼──▶  │ statutory_checks  (script node)   │─▶ bank account · duplicates  ─▶ exception → DRAFT bill
- Scans / PDFs ───┘     └ classify_payment  (prompt node)   ┘  PO + GRN 3-way · IRN · TDS      + review task + chatter
-        ▲                                                                                     blocked  → no bill
-        │ ack / correction emails                                                                  │
-        └────────────────────────────────────── AP workbench (Carbon UI) ◀────────────────────────┘
-                                                AP Copilot agent  ·  Supplier Desk agent  (wxO, Odoo tools)
+ Intake            watsonx Orchestrate: ap_invoice_processing_flow                                    Odoo
+ ──────            ────────────────────────────────────────────────                                   ────
+ Gmail AP inbox ┐  extract_invoice   docproc · WDU OCR + GST invoice schema, bounding boxes
+ Upload / API ──┼▶ statutory_checks  script · GSTIN check digit, GST regime, slab, arithmetic
+ AP Copilot ────┘  classify_payment  prompt · nature of payment for TDS (the only LLM step)
+                   erp_controls      tool · vendor, buyer GSTIN, duplicate, bank, IRN, PO/GRN, TDS ◀── live data
+                   route_invoice     decision table · AP routing policy
+                   route ── touchless → post_bill   tool · bill POSTED with GST + TDS              ──▶ bill
+                         ├ exception → hold_bill   tool · DRAFT bill + review task + chatter      ──▶ bill
+                         └ blocked   → end         duplicate, no bill
+
+ Workbench (Carbon UI): live progress, document viewer, approve / reject / email supplier, governance
+ Agents: AP Copilot (internal) · Supplier Desk (external), on the same Odoo tools
+ Control plane: guardrails, PII and IFSC masking, secrets detection, tool rate limits, model fallback
 ```
 
 **Why the work is split this way**
 
-- **The flow is document-only and reusable.** It runs from the API (this app), from chat (the AP Copilot can
-  call it on an uploaded file) or from any other channel. Documents go to the tenant's object storage via
-  `POST /v1/orchestrate/upload-to-s3`, and the returned pre-signed URL is the flow's `document_ref`.
-- **Deterministic where it matters.** Numbers, GSTINs and tax regimes are checked in a script node and in
-  Python against ERP data. The LLM classifies only what needs judgement: the nature of payment for TDS.
+- **The process is a flow, not an agent.** Every invoice runs the same steps in the same order, so it is a
+  flow with typed nodes. Agents are used only where conversation is the job: the AP team's questions and
+  approvals, and supplier status queries.
+- **Deterministic where it matters.** Numbers, GSTINs, tax regimes and ERP matches are checked in code (a
+  script node and an Odoo tool node). The LLM classifies only what needs judgement: the nature of payment
+  for TDS.
+- **Policy is a decision table.** Routing (duplicate → block, any failed control → review, above the
+  ₹25 lakh touchless limit → sign-off, otherwise post) is a decision-table node that AP can change in the
+  flow editor without code.
+- **One engine.** `wxo/tools/apcore` (India rules, Odoo client, controls, booking) is deployed with the
+  tools and imported by the workbench for reviewer actions, so the rules never diverge.
 - **The ERP is the system of record.** Bills, review tasks (`mail.activity`) and the agent's control log
-  (chatter) all live in Odoo. Approvals made through the Copilot, or directly in Odoo, sync back to the
-  workbench.
-- **Least privilege for agents.** The Supplier Desk has read-only tools that require a GSTIN and return
-  supplier-safe text. Only the internal Copilot can approve, and only after explicit confirmation.
+  (chatter) live in Odoo. Approvals made through the Copilot or directly in Odoo sync back to the workbench.
+- **Governed agents.** Least-privilege tools (the Supplier Desk is read-only and GSTIN-scoped), with
+  control-plane policies on top that apply whatever the prompt says.
+
+## Governance (watsonx Orchestrate control plane)
+
+Defined in `wxo/controls/*.yaml`, imported by `deploy.sh`, and shown live on the workbench's
+**Governance** page.
+
+| Control | Type | Applies to | Runs at | Why |
+|---|---|---|---|---|
+| Supplier Desk · content guardrails | Content Guardrails | `supplier_desk_agent` | input | External channel: blocks jailbreaks and abuse before the agent sees them |
+| Supplier Desk · PII masking | PII Filter | `supplier_desk_agent` | output | Bank accounts, emails and phone numbers never reach a supplier |
+| Supplier Desk · IFSC and account redaction | Regex Pattern | `supplier_desk_agent` | output | India identifiers the generic PII filter does not know |
+| Supplier tools · rate limit | Rate Limiter | supplier status tools | tool call | 20 calls a minute stops GSTIN or invoice enumeration |
+| AP Copilot · approval rate limit | Rate Limiter | `approve_ap_exception` | tool call | Caps the blast radius of the only write tool |
+| AP Copilot · secrets detector | Secrets Detector | `ap_copilot_agent` | input + output | Staff paste portal text; credentials are redacted |
+| Model policy `ap_gpt_oss_fallback` | Fallback | both agents | model | Groq primary, the same model on Bedrock on 429 / 5xx |
+
+A blocked run returns `USER_CONFIGURED_CONTROL_BLOCKED`, which the chat shows as **Blocked by control**.
+Model-level controls on the tenant bind to custom (virtual) models, so the fallback is a model policy.
 
 ## Repository
 
 | Path | Purpose |
 |---|---|
-| `wxo/flows/ap_invoice_extraction_flow.py` | Agentic flow: docproc (GST invoice KVP schema, bounding boxes) → script (statutory checks) → prompt (TDS nature) |
-| `wxo/tools/` | Python tools for the agents; Odoo credentials come from the `odoo_erp` key-value connection |
+| `wxo/flows/ap_invoice_processing_flow.py` | The process: docproc → script → prompt → ERP tool → decision table → post / hold |
+| `wxo/tools/apcore/` | Shared engine: India rules, Odoo client, ERP controls, bill booking (standard library only) |
+| `wxo/tools/` | Flow process tools and agent tools; Odoo credentials come from the `odoo_erp` key-value connection |
+| `wxo/controls/` | Control-plane policies (guardrails, PII, regex, rate limits, secrets) |
 | `wxo/agents/` | `ap_copilot_agent` (internal) and `supplier_desk_agent` (external) |
-| `wxo/deploy.sh` | Creates the connection and imports the flow, tools and agents |
-| `app/` | FastAPI backend (`pipeline.py`, `controls.py`, `odoo.py`, `wxo.py`, `mail.py`) and the Carbon UI in `static/` |
+| `wxo/deploy.sh` | Creates the connection and imports tools, flow, model policy, agents and controls |
+| `app/` | FastAPI workbench (`pipeline.py`, `wxo.py`, `mail.py`, `store.py`) and the Carbon UI in `static/` |
 | `scripts/setup_odoo.py` | Idempotent ERP provisioning: apps, GST/TDS taxes, buyer, vendors, products, POs, GRNs |
 | `scripts/demo_data.py` | One spec for the demo world, shared by the ERP seed and the invoice generator |
 | `scripts/generate_samples.py` | Renders the GST tax invoices in `samples/` |
@@ -102,7 +132,9 @@ Use the reset icon in the header first; it removes the bills the agent created s
    (red boxes on the document). Show **Email supplier** with the supplier-safe draft.
 5. **Price + IRN:** `05_konkan…`. Unit price 7.1% above the PO and no IRN from an e-invoice-mandated vendor.
 6. **Duplicate:** `06_…_scan.png`, a skewed, noisy phone scan of invoice 01, is blocked before a bill exists.
-7. **Assistants:** *"What needs my attention today?"* (Copilot), then the Supplier Desk with
+7. **Governance:** open the Governance page, then **Try a jailbreak on Supplier Desk**; the content
+   guardrail blocks it before the agent runs.
+8. **Assistants:** *"What needs my attention today?"* (Copilot), then the Supplier Desk with
    *"Status of KPA/26-27/073? GSTIN 29AAQFK2209M1ZU"*, then the same question with another supplier's GSTIN.
 
 ## Notes

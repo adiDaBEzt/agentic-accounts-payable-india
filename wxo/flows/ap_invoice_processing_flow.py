@@ -1,13 +1,17 @@
-"""watsonx Orchestrate agentic flow: GST supplier-invoice extraction + statutory pre-checks.
+"""watsonx Orchestrate agentic flow: a GST supplier invoice from document to Odoo bill.
 
-    START -> extract_invoice      (Document processing: WDU OCR + GST invoice KVP schema, bounding boxes)
-          -> statutory_checks     (Script: deterministic normalisation, GSTIN check digit, GST regime,
-                                   slab and arithmetic checks — no LLM involved)
-          -> classify_payment     (Prompt: LLM judges the nature of payment for TDS from line items)
-          -> END
+    START -> extract_invoice   (Document processing: WDU OCR + GST invoice KVP schema, bounding boxes)
+          -> statutory_checks  (Script: normalisation, GSTIN check digit, GST regime, slab, arithmetic)
+          -> classify_payment  (Prompt: the LLM judges the nature of payment for TDS)
+          -> erp_controls      (Tool: vendor, duplicate, bank, IRN, PO/GRN 3-way match, TDS on live Odoo)
+          -> route_invoice     (Decision table: AP routing policy)
+          -> route branch ─ touchless → post_bill   (Tool: create + post the Odoo bill)
+                          ├ exception → hold_bill   (Tool: draft bill + review task)
+                          └ blocked   → END         (duplicate: no bill)
 
-ERP-dependent controls (PO / GRN match, duplicates, vendor bank, TDS rate) run afterwards
-against live Odoo data, so this flow stays reusable from chat, API or email intake.
+Only the payment classification uses an LLM; every number, GSTIN and ERP check is deterministic, and the
+routing policy is a decision table that AP can change in the flow editor without code. The same flow runs
+from the workbench API, email intake or the AP Copilot.
 """
 
 from typing import List, Optional
@@ -22,8 +26,12 @@ from ibm_watsonx_orchestrate.flow_builder.types import (
     DocProcKVPSchema,
     DocProcOutputFormat,
     DocProcTable,
+    DecisionsCondition,
+    DecisionsRule,
     NodeErrorHandlerConfig,
 )
+
+TOUCHLESS_LIMIT_INR = 2_500_000  # delegation of authority: above ₹25 lakh a person signs off
 
 
 def _f(description: str, example: str) -> DocProcField:
@@ -126,6 +134,11 @@ class FlowOutput(BaseModel):
     kvps: Optional[List[dict]] = None
     metadata: Optional[dict] = None
     extracted_text: str = ""
+    route: str = ""
+    route_reason: str = ""
+    controls: Optional[dict] = None
+    posted: Optional[dict] = None  # set by whichever booking node ran
+    held: Optional[dict] = None
 
 
 STATUTORY_CHECKS_SCRIPT = r'''
@@ -279,17 +292,17 @@ self.output.checks = checks
 
 
 @flow(
-    name="ap_invoice_extraction_flow",
-    display_name="AP invoice extraction & GST pre-checks",
+    name="ap_invoice_processing_flow",
+    display_name="AP invoice processing (GST · 3-way match · TDS → Odoo)",
     description=(
-        "Extracts an Indian GST supplier invoice (header, HSN/SAC lines, CGST/SGST/IGST, IRN, bank details) "
-        "with bounding boxes, runs deterministic GST and arithmetic checks, and classifies the nature of "
-        "payment for TDS. Input: the invoice document."
+        "Processes an Indian GST supplier invoice end to end: extracts it with bounding boxes, runs GST, "
+        "arithmetic, vendor, duplicate, bank, e-invoice, PO/GRN 3-way match and TDS controls against Odoo, "
+        "then posts the bill touchless, holds it for AP review, or blocks a duplicate. Input: the invoice document."
     ),
     input_schema=DocProcInput,
     output_schema=FlowOutput,
 )
-def build_ap_invoice_extraction_flow(aflow: Flow = None) -> Flow:
+def build_ap_invoice_processing_flow(aflow: Flow = None) -> Flow:
     extract = aflow.docproc(
         name="extract_invoice",
         display_name="Extract invoice (WDU)",
@@ -339,11 +352,50 @@ def build_ap_invoice_extraction_flow(aflow: Flow = None) -> Flow:
     classify.map_input("supplier_name", 'flow["statutory_checks"].output.supplier_name')
     classify.map_input("lines_text", 'flow["statutory_checks"].output.lines_text')
 
-    aflow.sequence(START, extract, checks, classify, END)
+    erp = aflow.tool("ap_erp_controls", name="erp_controls", display_name="ERP controls (Odoo)",
+                     error_handler_config=NodeErrorHandlerConfig(error_message="ERP controls failed.", max_retries=1,
+                                                                 retry_interval=2000))
+    erp.map_input("invoice", 'flow["statutory_checks"].output')
+    erp.map_input("payment_nature", 'flow["classify_payment"].output')
+
+    def rule(when: tuple[str, DecisionsCondition], route: str, reason: str) -> DecisionsRule:
+        return (DecisionsRule().condition(f'flow["erp_controls"].output.{when[0]}', when[1])
+                .action("flow.output.route", route).action("flow.output.route_reason", reason))
+
+    decide = aflow.decisions(
+        name="route_invoice",
+        display_name="AP routing policy",
+        description="First matching rule wins: duplicates are blocked, any failed control goes to review, and "
+                    "clean invoices above the touchless limit need a person's sign-off.",
+        rules=[
+            rule(("duplicates", DecisionsCondition().greater_than(0)), "blocked", "Duplicate invoice"),
+            rule(("exceptions", DecisionsCondition().greater_than(0)), "exception", ""),
+            rule(("invoice_total", DecisionsCondition().greater_than(TOUCHLESS_LIMIT_INR)), "exception",
+                 "Above ₹25 lakh touchless limit"),
+        ],
+        default_actions={"flow.output.route": "touchless", "flow.output.route_reason": ""},
+    )
+
+    post = aflow.tool("ap_post_bill", name="post_bill", display_name="Post bill in Odoo")
+    hold = aflow.tool("ap_hold_bill", name="hold_bill", display_name="Hold for AP review")
+    for node in (post, hold):
+        node.map_input("invoice", 'flow["statutory_checks"].output')
+        node.map_input("control_result", 'flow["erp_controls"].output.result')
+    hold.map_input("reason", "flow.output.route_reason")
+
+    route = aflow.branch(name="route", display_name="Route", evaluator="flow.output.route")
+    route.case("touchless", post).case("exception", hold).case("blocked", END)
+
+    aflow.sequence(START, extract, checks, classify, erp, decide, route)
+    aflow.edge(post, END)
+    aflow.edge(hold, END)
 
     aflow.map_output(output_variable="invoice", expression='flow["statutory_checks"].output')
     aflow.map_output(output_variable="payment_nature", expression='flow["classify_payment"].output')
     aflow.map_output(output_variable="kvps", expression='flow["extract_invoice"].output.kvps')
     aflow.map_output(output_variable="metadata", expression='flow["extract_invoice"].output.metadata')
     aflow.map_output(output_variable="extracted_text", expression='flow["extract_invoice"].output.text')
+    aflow.map_output(output_variable="controls", expression='flow["erp_controls"].output.result')
+    aflow.map_output(output_variable="posted", expression='flow["post_bill"].output')
+    aflow.map_output(output_variable="held", expression='flow["hold_bill"].output')
     return aflow

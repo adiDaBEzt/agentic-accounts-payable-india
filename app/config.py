@@ -23,7 +23,7 @@ _load_dotenv(ROOT / ".env")
 
 WXO_INSTANCE_URL = os.environ.get("WXO_INSTANCE_URL", "").rstrip("/")
 WXO_API_KEY = os.environ.get("WXO_API_KEY", "")
-WXO_FLOW_NAME = os.environ.get("WXO_FLOW_NAME", "ap_invoice_extraction_flow")
+WXO_FLOW_NAME = os.environ.get("WXO_FLOW_NAME", "ap_invoice_processing_flow")
 WXO_COPILOT_AGENT = os.environ.get("WXO_COPILOT_AGENT", "ap_copilot_agent")
 WXO_SUPPLIER_AGENT = os.environ.get("WXO_SUPPLIER_AGENT", "supplier_desk_agent")
 
@@ -37,9 +37,6 @@ GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 GMAIL_POLL_SECONDS = int(os.environ.get("GMAIL_POLL_SECONDS", "0") or 0)
 VENDOR_EMAIL_OVERRIDE = os.environ.get("VENDOR_EMAIL_OVERRIDE", "")
 
-# AP policy knobs
-PRICE_TOLERANCE_PCT = float(os.environ.get("PRICE_TOLERANCE_PCT", "2.0"))
-AMOUNT_TOLERANCE_INR = float(os.environ.get("AMOUNT_TOLERANCE_INR", "1.0"))
 
 for d in (DATA_DIR, UPLOAD_DIR):
     d.mkdir(parents=True, exist_ok=True)

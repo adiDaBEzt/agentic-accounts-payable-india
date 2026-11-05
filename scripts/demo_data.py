@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.india import make_gstin  # noqa: E402
+import app  # noqa: E402,F401  (puts the apcore engine on the path)
+from apcore.india import make_gstin  # noqa: E402
 
 BUYER = {
     "name": "Meridian Specialty Chemicals India Pvt. Ltd.",

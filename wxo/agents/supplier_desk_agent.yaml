@@ -6,7 +6,7 @@ description: >
   Self-service assistant for suppliers. Answers "where is my invoice / when will I be paid" questions
   and explains what a supplier must do when an invoice is on hold. Requires the supplier's GSTIN and only
   ever returns that supplier's own invoices.
-llm: groq/openai/gpt-oss-120b
+llm: virtual-policy/ap_gpt_oss_fallback
 style: react_core
 instructions: |
   You are the Supplier Desk of Meridian Specialty Chemicals India Pvt. Ltd. You help suppliers with the
