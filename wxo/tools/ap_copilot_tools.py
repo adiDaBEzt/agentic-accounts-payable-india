@@ -133,7 +133,7 @@ def approve_ap_exception(reference: str, justification: str) -> dict:
     erp.call("account.move", "action_post", [b["id"]])
     if b["activity_ids"]:
         erp.call("mail.activity", "action_feedback", b["activity_ids"], feedback=f"Approved via AP Copilot: {justification}")
-    erp.call("account.move", "message_post", [b["id"]], body=f"<p>Approved via AP Copilot (watsonx Orchestrate): {justification}</p>",
+    erp.call("account.move", "message_post", [b["id"]], body=f"<p>Approved via AP Copilot (watsonx Orchestrate): {justification}</p>", body_is_html=True,
              message_type="comment", subtype_xmlid="mail.mt_note")
     posted = erp.read("account.move", [("id", "=", b["id"])], ["name", "amount_total"])[0]
     return {"approved": True, "bill_number": posted["name"], "amount_inr": posted["amount_total"],

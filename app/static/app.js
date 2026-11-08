@@ -173,6 +173,7 @@ async function reloadIfUpdated() {
 
 function route() {
   reloadIfUpdated();
+  $("#modal-root").innerHTML = "";  // a dialog never outlives the page it was opened on
   clearInterval(state.timer);
   const [, page = "overview", arg] = location.hash.split("/");
   $$(".side-nav a[data-route]").forEach((a) => a.classList.toggle("active", a.dataset.route === page));
@@ -211,9 +212,9 @@ async function viewOverview(view = $("#view")) {
       </div></div>
 
     <div class="grid cols-2">
-      <div class="table-wrap"><div class="toolbar"><h2 class="section-title" style="margin:0 16px">Recent invoices</h2><span class="spacer" style="flex:1"></span><a class="btn ghost sm" href="#/invoices">View all ${icon("arrow")}</a></div>
+      <div class="table-wrap"><div class="toolbar"><h2 class="section-title" style="margin:0 16px">Recent documents</h2><span class="spacer" style="flex:1"></span><a class="btn ghost sm" href="#/invoices">View all ${icon("arrow")}</a></div>
         ${docs.length ? invoiceTable(docs.slice(0, 6), true) : emptyState()}</div>
-      <div class="tile"><h2>Why invoices were held</h2>
+      <div class="tile"><h2>Why documents were held</h2>
         ${o.exception_reasons.length ? `<div class="bar-list">${o.exception_reasons.map(([r, n]) => `
           <div class="bar-row"><div class="bar-label"><span>${esc(r)}</span><span>${n}</span></div>
           <div class="bar-track"><div class="bar-fill" style="width:${(n / max) * 100}%"></div></div></div>`).join("")}</div>`
@@ -566,7 +567,7 @@ function refuseExpenseModal(d) {
 
 function matchTab(c) {
   if (!c.po) return `<div class="notice warning">${icon("warning")}<div><b>No purchase order matched.</b>3-way match could not run.</div></div>`;
-  const receipts = (c.po.receipts || []).map((r) => `<span class="tag ${r.state === "done" ? "green" : "warm"} sm mono">${esc(r.name)} · ${r.state === "done" ? "received" : "backorder open"}</span>`).join(" ") || '<span class="helper">Services — accepted quantity recorded on the PO</span>';
+  const receipts = (c.po.receipts || []).filter((r) => !r.name.includes("/OUT/")).map((r) => `<span class="tag ${r.state === "done" ? "green" : "warm"} sm mono">${esc(r.name)} · ${r.state === "done" ? "received" : "backorder open"}</span>`).join(" ") || '<span class="helper">Services — accepted quantity recorded on the PO</span>';
   return `<p style="margin-top:0"><a href="${esc(c.po.url)}" target="_blank" rel="noopener">${esc(c.po.name)}</a> · ${inr(c.po.amount_untaxed)} untaxed</p>
     <p class="helper" style="margin-bottom:4px">Goods receipts (GRN)</p><p style="margin-top:0">${receipts}</p>
     <div class="table-wrap"><table class="data compact"><thead><tr><th>Item</th><th class="num">Invoiced</th><th class="num">PO rate</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Billed before</th><th>Result</th></tr></thead><tbody>
@@ -791,7 +792,7 @@ async function viewGovernance(view) {
         ${pipe(4, "Model", [...models, "Groq primary, Bedrock fallback on 429 / 5xx"], "Model policy")}
       </div></div>
 
-    <div class="table-wrap" style="margin-bottom:16px"><div class="toolbar"><h2 class="section-title" style="margin:0 16px">Active controls <span class="helper">${g.controls.length} on this tenant</span></h2></div>
+    <div class="table-wrap" style="margin-bottom:16px"><div class="toolbar"><h2 class="section-title" style="margin:0 16px">Active controls <span class="helper">${g.controls.length} protecting the AP agents and tools</span></h2></div>
       <table class="data"><thead><tr><th>Control</th><th>Type</th><th>Applies to</th><th>Runs at</th><th>Setting</th></tr></thead><tbody>
       ${g.controls.map((c) => `<tr><td><div>${esc(c.name)}</div><div class="helper">${esc(c.description)}</div></td><td>${esc(c.type)}</td><td>${scope(c)}</td>
         <td>${c.hooks.map((h) => esc(HOOKS[h]?.[0] || h)).join(", ")}</td><td>${esc(controlSetting(c))}</td></tr>`).join("")}

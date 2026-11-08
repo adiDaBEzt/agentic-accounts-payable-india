@@ -6,6 +6,7 @@ held for a GRN shortage on the same PO gets a note so AP can release it.
 
 import html
 
+from . import chatter
 from .controls import match_lines
 from .india import inr
 from .odoo import Odoo
@@ -153,10 +154,7 @@ def _notify_held_bills(odoo: Odoo, po: dict, picking: str, challan: str) -> list
 
 
 def _html(title: str, doc: dict, checks: list[dict]) -> str:
-    icon = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️"}
-    rows = "".join(f"<tr><td>{icon[c['status']]}</td><td><b>{c['code']}</b></td><td>{html.escape(c['title'])}</td>"
-                   f"<td>{html.escape(c['detail'])}</td></tr>" for c in checks)
-    return f"<p><b>AP agent (watsonx Orchestrate flow)</b> — {html.escape(title)}</p><table>{rows}</table>"
+    return chatter.note(html.escape(title), checks)
 
 
 def undo_receipt(odoo: Odoo, picking_id: int, challan: str = "") -> int:

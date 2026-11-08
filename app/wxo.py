@@ -142,12 +142,18 @@ class WxO:
         model each AP agent runs on."""
         agents = {a["id"]: a for a in self._req("GET", "/agents")}
         tools = {t["id"]: t["name"] for t in self._req("GET", "/tools")}
-        items = [{
-            "name": b["display_name"] or b["name"], "type": b["artifact_display_name"], "description": b["description"],
-            "hooks": b["hooks"], "priority": b["priority"], "active": b["is_active"], "config": b.get("config") or {},
-            "agents": [agents[i]["name"] for i in b.get("agent_ids") or [] if i in agents],
-            "tools": [tools.get(i, i) for i in b.get("tool_ids") or []], "models": b.get("model_names") or [],
-        } for b in self._req("GET", "/policies/bindings")["bindings"]]
+        ours_agents = {config.WXO_COPILOT_AGENT, config.WXO_SUPPLIER_AGENT}
+        ours_tools = {t for a in agents.values() if a["name"] in ours_agents for t in a.get("tools") or []}
+        items = []
+        for b in self._req("GET", "/policies/bindings")["bindings"]:  # the tenant may host other solutions too
+            names = [agents[i]["name"] for i in b.get("agent_ids") or [] if i in agents and agents[i]["name"] in ours_agents]
+            tool_names = [tools[i] for i in b.get("tool_ids") or [] if i in ours_tools and i in tools]
+            if not (names or tool_names):
+                continue
+            items.append({
+                "name": b["display_name"] or b["name"], "type": b["artifact_display_name"], "description": b["description"],
+                "hooks": b["hooks"], "priority": b["priority"], "active": b["is_active"], "config": b.get("config") or {},
+                "agents": names, "tools": tool_names, "models": b.get("model_names") or []})
         ap_agents = {a["name"]: a.get("llm", "") for a in agents.values()
                      if a["name"] in (config.WXO_COPILOT_AGENT, config.WXO_SUPPLIER_AGENT)}
         return {"controls": sorted(items, key=lambda c: c["priority"]), "agent_models": ap_agents}

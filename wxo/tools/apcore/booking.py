@@ -3,12 +3,10 @@ Every bill carries the agent's control log in its chatter."""
 
 import html
 
+from . import chatter
 from .controls import bill_lines
 from .india import inr
 from .odoo import Odoo
-
-ICON = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️"}
-
 
 def post(invoice: dict, result: dict, odoo: Odoo) -> dict:
     bill_id = _create(invoice, result, odoo, "touchless")
@@ -44,10 +42,7 @@ def _create(invoice: dict, result: dict, odoo: Odoo, route: str) -> int:
 
 
 def chatter_html(result: dict, route: str) -> str:
-    rows = "".join(f"<tr><td>{ICON[c['status']]}</td><td><b>{c['code']}</b></td><td>{html.escape(c['title'])}</td>"
-                   f"<td>{html.escape(c['detail'])}</td></tr>" for c in result["checks"])
     tds = result.get("tds") or {}
     tds_line = (f"<p>TDS: Sec {tds['section']} ({tds['legacy']}) @ {tds['rate']:g}% = ₹{inr(tds['amount'])} · "
                 f"Net payable ₹{inr(result['net_payable'])}</p>") if tds.get("applicable") else ""
-    return (f"<p><b>AP agent (watsonx Orchestrate flow)</b> — route: <b>{route.upper()}</b></p>"
-            f"{tds_line}<table>{rows}</table>")
+    return chatter.note(f"route: <b>{route.upper()}</b>", result["checks"], tds_line)

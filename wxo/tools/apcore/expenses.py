@@ -7,6 +7,7 @@ blocked (duplicate), exception (manager approval) or touchless (auto-approved).
 import html
 from datetime import date
 
+from . import chatter
 from .india import inr
 from .odoo import Odoo
 
@@ -188,8 +189,4 @@ def expense(odoo: Odoo, exp_id: int) -> dict:
 
 
 def _chatter_html(result: dict, route: str) -> str:
-    icon = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️"}
-    rows = "".join(f"<tr><td>{icon[c['status']]}</td><td><b>{c['code']}</b></td><td>{html.escape(c['title'])}</td>"
-                   f"<td>{html.escape(c['detail'])}</td></tr>" for c in result["checks"])
-    return (f"<p><b>AP agent (watsonx Orchestrate flow)</b> — expense route: <b>{route.upper()}</b></p>"
-            f"<table>{rows}</table>")
+    return chatter.note(f"expense route: <b>{route.upper()}</b>", result["checks"])

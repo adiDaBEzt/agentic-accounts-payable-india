@@ -91,7 +91,8 @@ class Odoo:
              "uom_id", "tax_ids", "price_subtotal"])
         for line in po["lines"]:  # Odoo 20 leaves `name` empty unless the description was edited
             line["name"] = (line["name"] or line["product_id"][1].split("] ", 1)[-1]).strip()
-        po["receipts"] = self.search_read("stock.picking", [("id", "in", po["picking_ids"])],
+        po["receipts"] = self.search_read("stock.picking", [("id", "in", po["picking_ids"]),
+                                                            ("picking_type_code", "=", "incoming")],
                                           ["name", "state", "date_done", "scheduled_date"]) if po["picking_ids"] else []
         po["url"] = f"{self.url}/odoo/purchase/{po['id']}"
         return po
@@ -141,7 +142,9 @@ class Odoo:
         return self.bill(bill_id)
 
     def note(self, model: str, rec_id: int, html: str) -> None:
-        self.call(model, "message_post", [rec_id], body=html, message_type="comment", subtype_xmlid="mail.mt_note")
+        # body_is_html: over RPC Odoo otherwise escapes the body and the chatter shows raw tags
+        self.call(model, "message_post", [rec_id], body=html, body_is_html=True, message_type="comment",
+                  subtype_xmlid="mail.mt_note")
 
     def schedule_review(self, bill_id: int, summary: str, note: str = "") -> None:
         self.schedule_activity("account.move", bill_id, summary, note)
