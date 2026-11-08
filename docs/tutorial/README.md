@@ -1,5 +1,7 @@
 # Build an agentic accounts-payable system for India with watsonx Orchestrate and Odoo
 
+![Agentic accounts payable for India on IBM watsonx Orchestrate and Odoo](images/cover.png)
+
 *A hands-on guide to processing any AP document, from GST supplier invoices to employee taxi receipts, with an
 agentic flow, decision tables, governed agents and a live ERP.*
 

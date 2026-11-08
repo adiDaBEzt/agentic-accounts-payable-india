@@ -1,5 +1,7 @@
 # Agentic Accounts Payable for India — IBM watsonx Orchestrate + ERP
 
+![Agentic accounts payable for India on IBM watsonx Orchestrate and Odoo](docs/tutorial/images/cover.png)
+
 An AI agent that takes any accounts-payable document from receipt to the right action in the ERP. Drop in a
 supplier invoice, an employee's taxi or hotel receipt, a PO copy or a delivery challan; watsonx Orchestrate
 recognises the type and processes it. For invoices it applies the India-specific controls that generic AP
@@ -17,6 +19,15 @@ agents serve the AP team and suppliers from the same live ERP data.
 | Anything else | Marked unsupported and left for a person; nothing changes in the ERP |
 
 **Step-by-step guide:** [Build an agentic accounts-payable system for India with watsonx Orchestrate and Odoo](docs/tutorial/README.md) · [read it as a web page](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)
+
+## See it in action
+
+<table>
+<tr><td width="50%"><img src="docs/tutorial/images/ui-overview.png" alt="AP workbench overview: touchless rate, value on hold, duplicates blocked, TDS"><br><sub>AP workbench overview: touchless rate, value on hold, duplicates blocked, TDS</sub></td><td width="50%"><img src="docs/tutorial/images/ui-invoice-exception.png" alt="Invoice held for review, with the failing fields outlined on the document"><br><sub>Invoice held for review, with the failing fields outlined on the document</sub></td></tr>
+<tr><td width="50%"><img src="docs/tutorial/images/wxo-flow-canvas.png" alt="The agentic flow in watsonx Orchestrate: one lane per document type"><br><sub>The agentic flow in watsonx Orchestrate: one lane per document type</sub></td><td width="50%"><img src="docs/tutorial/images/wxo-decision-table.png" alt="AP routing policy as a decision table the AP team can edit"><br><sub>AP routing policy as a decision table the AP team can edit</sub></td></tr>
+<tr><td width="50%"><img src="docs/tutorial/images/ui-expense-hotel.png" alt="Hotel receipt over the ₹6,000/night policy, held for the manager"><br><sub>Hotel receipt over the ₹6,000/night policy, held for the manager</sub></td><td width="50%"><img src="docs/tutorial/images/ui-challan.png" alt="Delivery challan booked as a goods receipt in Odoo"><br><sub>Delivery challan booked as a goods receipt in Odoo</sub></td></tr>
+<tr><td width="50%"><img src="docs/tutorial/images/odoo-held-bill.png" alt="Draft bill in Odoo with the review task and the agent's control log"><br><sub>Draft bill in Odoo with the review task and the agent's control log</sub></td><td width="50%"><img src="docs/tutorial/images/ui-governance.png" alt="Control-plane governance: guardrails, PII masking, rate limits, model fallback"><br><sub>Control-plane governance: guardrails, PII masking, rate limits, model fallback</sub></td></tr>
+</table>
 
 Odoo is the reference ERP (vendor master, POs, goods receipts, vendor bills). The ERP layer is a thin
 client (`wxo/tools/apcore/odoo.py`, `wxo/tools/erp.py`), so it can be replaced with SAP S/4HANA OData without touching
@@ -39,6 +50,10 @@ PO matching, but these steps usually stay manual:
 
 ## Architecture
 
+![Architecture of the solution](docs/tutorial/images/architecture.png)
+
+<details><summary>Text version</summary>
+
 ```
  Intake            watsonx Orchestrate: ap_document_processing_flow                                    Odoo
  ──────            ────────────────────────────────────────────────                                    ────
@@ -57,6 +72,8 @@ PO matching, but these steps usually stay manual:
  Agents: AP Copilot (internal) · Supplier Desk (external), on the same Odoo tools
  Control plane: guardrails, PII and IFSC masking, secrets detection, tool rate limits, model fallback
 ```
+
+</details>
 
 **Why the work is split this way**
 
