@@ -109,8 +109,8 @@ In this step, you clone the repository and configure your credentials.
 
 1. Clone the repository and create the virtual environment:
 
-       git clone https://github.com/adiDaBEzt/ImageProcessingPipeline.git
-       cd ImageProcessingPipeline
+       git clone https://github.com/adiDaBEzt/agentic-accounts-payable-india.git
+       cd agentic-accounts-payable-india
        uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements.txt
 
 2. Copy `.env.example` to `.env` and fill in your Orchestrate instance URL and API key, and your Odoo URL,
@@ -412,4 +412,4 @@ You can extend the solution in the following ways:
 - **Payment runs:** add a scheduled flow that proposes the payment batch, with TDS already withheld on each bill.
 
 The complete source, sample documents and Odoo provisioning script are in the
-[GitHub repository](https://github.com/adiDaBEzt/ImageProcessingPipeline).
+[GitHub repository](https://github.com/adiDaBEzt/agentic-accounts-payable-india).
