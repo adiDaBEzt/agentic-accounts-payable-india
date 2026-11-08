@@ -5,6 +5,8 @@ agentic flow, decision tables, governed agents and a live ERP.*
 
 By Aditya Krishnan
 
+[Read this guide as a web page](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)
+
 Accounts payable teams in India still key in most of what lands in their inbox. A mid-sized manufacturer gets
 100 to 200 supplier invoices a day. It also gets employees' taxi and hotel receipts, signed purchase-order
 copies and the delivery challans that arrive with goods. Generic capture tools read the text, but the India-specific

@@ -16,7 +16,7 @@ agents serve the AP team and suppliers from the same live ERP data.
 | Delivery challan / GRN | Books the goods receipt when quantities fit, and flags any bill held for a GRN shortage on that PO |
 | Anything else | Marked unsupported and left for a person; nothing changes in the ERP |
 
-**Step-by-step guide:** [Build an agentic accounts-payable system for India with watsonx Orchestrate and Odoo](docs/tutorial/README.md)
+**Step-by-step guide:** [Build an agentic accounts-payable system for India with watsonx Orchestrate and Odoo](docs/tutorial/README.md) · [read it as a web page](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)
 
 Odoo is the reference ERP (vendor master, POs, goods receipts, vendor bills). The ERP layer is a thin
 client (`wxo/tools/apcore/odoo.py`, `wxo/tools/erp.py`), so it can be replaced with SAP S/4HANA OData without touching
