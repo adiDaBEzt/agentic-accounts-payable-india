@@ -81,7 +81,7 @@ The solution has five components:
 
 A typical run looks like this:
 
-1. A document arrives by upload, email or chat. The workbench stores it in the tenant's object storage with
+1. A document arrives by upload or email. The workbench stores it in the tenant's object storage with
    `POST /v1/orchestrate/upload-to-s3` and starts the flow with the returned URL.
 2. The flow reads the document, picks its type, and runs that type's nodes. The LLM is used only for judgement:
    the nature of payment for TDS, and the expense category.
@@ -206,7 +206,7 @@ The script does the following, in order:
 2. Imports the Python tools. The flow's process tools come first, because the flow resolves their schemas at
    import time.
 3. Imports the flow.
-4. Adds the `ap_gpt_oss_fallback` model policy.
+4. Adds the `ap_claude_fallback` model policy: Claude Sonnet 4.6 first, gpt-oss-120b as the fallback.
 5. Imports and deploys the two agents.
 6. Imports the controls from `wxo/controls/*.yaml`.
 
@@ -331,8 +331,9 @@ with different permissions.
 
    ![The AP Copilot listing held bills with amounts, exceptions and links to Odoo.](images/ui-copilot.png)
 
-2. The same agent works in the Orchestrate agent builder. Note the model: `ap_gpt_oss_fallback`, a model policy
-   that uses Groq and falls back to the same model on Bedrock on 429 or 5xx errors.
+2. The same agent works in the Orchestrate agent builder. Note the model: `ap_claude_fallback`, a model policy
+   that runs Claude Sonnet 4.6 on Bedrock and falls back to gpt-oss-120b on Groq on 429 or 5xx errors. The
+   flow's two prompt nodes use the same policy.
 
    ![The AP Copilot in the watsonx Orchestrate agent builder, answering in the preview chat.](images/wxo-agent-builder.png)
 
@@ -389,7 +390,11 @@ in that thread are blocked too, so the user needs to start a new conversation.
 - **Use a non-zero temperature for near-greedy output.** A prompt node's temperature of `0` is dropped as falsy.
   Use `0.01`.
 - **Model fallback is a model policy.** Model-level controls bind to custom models, so the fallback is set up with
-  `orchestrate models policy add`, and the agents reference `virtual-policy/<name>`.
+  `orchestrate models policy add`, and the agents reference `virtual-policy/<name>`. Prompt nodes accept the
+  same `virtual-policy/<name>` as their `llm`.
+- **Keep the document flow out of a Claude agent's tools.** With Claude Sonnet 4.6 on Bedrock, an agent that
+  lists the document-processing flow as a tool fails on every message, even "Hello". The AP Copilot leaves new
+  documents to the mailbox and the workbench, which start the flow directly.
 
 ### Summary and next steps
 

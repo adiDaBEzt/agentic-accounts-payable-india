@@ -35,6 +35,7 @@ from ibm_watsonx_orchestrate.flow_builder.types import (
 )
 
 TOUCHLESS_LIMIT_INR = 2_500_000  # delegation of authority: above ₹25 lakh a person signs off
+LLM = "virtual-policy/ap_claude_fallback"  # Claude Sonnet 4.6, gpt-oss-120b on 429 / 5xx (see deploy.sh)
 DOC_TYPES = {"GSTTaxInvoice": "supplier_invoice", "ExpenseReceipt": "expense_receipt",
              "PurchaseOrder": "purchase_order", "DeliveryChallan": "delivery_challan"}
 
@@ -529,7 +530,7 @@ def build_ap_document_processing_flow(aflow: Flow = None) -> Flow:
             "Return the nature, your confidence between 0 and 1, and a one-sentence rationale.",
         ],
         user_prompt="Supplier: {supplier_name}\nLine items:\n{lines_text}",
-        llm="groq/openai/gpt-oss-120b",
+        llm=LLM,
         llm_parameters=PromptLLMParameters(temperature=0.01),  # 0 is dropped by the ADK; near-greedy for repeatability
         input_schema=ClassifierInput,
         output_schema=PaymentNature,
@@ -581,7 +582,7 @@ def build_ap_document_processing_flow(aflow: Flow = None) -> Flow:
             "Also give the likely business purpose in a short phrase, and your confidence between 0 and 1.",
         ],
         user_prompt="{summary}",
-        llm="groq/openai/gpt-oss-120b",
+        llm=LLM,
         llm_parameters=PromptLLMParameters(temperature=0.01),  # 0 is dropped by the ADK; near-greedy for repeatability
         input_schema=ExpenseSummary,
         output_schema=ExpenseCategory,

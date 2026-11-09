@@ -789,7 +789,7 @@ async function viewGovernance(view) {
       <div class="pipeline gov">
         ${["agent_pre_invoke", "tool_pre_invoke", "agent_post_invoke"].map((h, i) =>
           pipe(i + 1, HOOKS[h][0], lane(h).map((c) => `${c.type} · ${[...c.agents, ...c.tools].join(", ")}`), HOOKS[h][1])).join("")}
-        ${pipe(4, "Model", [...models, "Groq primary, Bedrock fallback on 429 / 5xx"], "Model policy")}
+        ${pipe(4, "Model", [...models, "Claude Sonnet 4.6 primary, gpt-oss-120b fallback on 429 / 5xx"], "Model policy")}
       </div></div>
 
     <div class="table-wrap" style="margin-bottom:16px"><div class="toolbar"><h2 class="section-title" style="margin:0 16px">Active controls <span class="helper">${g.controls.length} protecting the AP agents and tools</span></h2></div>

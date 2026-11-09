@@ -24,11 +24,11 @@ done
 echo "▸ Flow: ap_document_processing_flow"
 $ORCH tools import -k flow -f flows/ap_document_processing_flow.py
 
-echo "▸ Model policy: gpt-oss-120b, Groq primary with Bedrock fallback"
-$ORCH models policy add -n ap_gpt_oss_fallback -m groq/openai/gpt-oss-120b -m bedrock/openai.gpt-oss-120b-1:0 \
+echo "▸ Model policy: Claude Sonnet 4.6 primary, gpt-oss-120b fallback"
+$ORCH models policy add -n ap_claude_fallback -m bedrock/us.anthropic.claude-sonnet-4-6 -m groq/openai/gpt-oss-120b \
   -s fallback --strategy-on-code 429 --strategy-on-code 500 --strategy-on-code 502 --strategy-on-code 503 \
   --strategy-on-code 504 --retry-attempts 1 --retry-on-code 429 --retry-on-code 502 \
-  --display-name "gpt-oss-120b (Groq → Bedrock fallback)" --description "AP agents' LLM" >/dev/null 2>&1 || true
+  --display-name "Claude Sonnet 4.6 (gpt-oss-120b fallback)" --description "AP agents' LLM" >/dev/null 2>&1 || true
 
 echo "▸ Agents"
 $ORCH agents import -f agents/supplier_desk_agent.yaml

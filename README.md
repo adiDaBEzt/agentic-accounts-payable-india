@@ -109,7 +109,7 @@ Defined in `wxo/controls/*.yaml`, imported by `deploy.sh`, and shown live on the
 | Supplier tools · rate limit | Rate Limiter | supplier status tools | tool call | 20 calls a minute stops GSTIN or invoice enumeration |
 | AP Copilot · approval rate limit | Rate Limiter | `approve_ap_exception` | tool call | Caps the blast radius of the only write tool |
 | AP Copilot · secrets detector | Secrets Detector | `ap_copilot_agent` | input + output | Staff paste portal text; credentials are redacted |
-| Model policy `ap_gpt_oss_fallback` | Fallback | both agents | model | Groq primary, the same model on Bedrock on 429 / 5xx |
+| Model policy `ap_claude_fallback` | Fallback | both agents, the flow's prompt nodes | model | Claude Sonnet 4.6 on Bedrock; gpt-oss-120b on Groq on 429 / 5xx |
 
 A blocked run returns `USER_CONFIGURED_CONTROL_BLOCKED`, which the chat shows as **Blocked by control**.
 Model-level controls on the tenant bind to custom (virtual) models, so the fallback is a model policy.
