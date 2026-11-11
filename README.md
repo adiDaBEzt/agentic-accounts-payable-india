@@ -1,12 +1,12 @@
-# Agentic Accounts Payable for India — IBM watsonx Orchestrate + ERP
+# Agentic Accounts Payable — IBM watsonx Orchestrate + ERP
 
-[![Agentic accounts payable for India on IBM watsonx Orchestrate and Odoo](docs/tutorial/images/cover.png)](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)
+[![Agentic accounts payable on IBM watsonx Orchestrate and Odoo](docs/tutorial/images/cover.png)](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)
 
 [![Read the step-by-step guide](https://img.shields.io/badge/Read_the_step--by--step_guide-0f62fe?style=for-the-badge)](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC)&nbsp;&nbsp;[Markdown version](docs/tutorial/README.md)
 
 An AI agent that takes any accounts-payable document from receipt to the right action in the ERP. Drop in a
 supplier invoice, an employee's taxi or hotel receipt, a PO copy or a delivery challan; watsonx Orchestrate
-recognises the type and processes it. For invoices it applies the India-specific controls that generic AP
+recognises the type and processes it. For invoices it applies the statutory and fraud controls that generic AP
 tools leave to humans: GST regime and GSTIN validation, e-invoice IRN, TDS under the Income-tax Act 2025,
 GRN-based 3-way match, duplicate detection and vendor bank-account verification. Clean documents go through
 **touchless**. Exceptions are held in the ERP with a task and a recommended action. Two conversational
@@ -20,7 +20,7 @@ agents serve the AP team and suppliers from the same live ERP data.
 | Delivery challan / GRN | Books the goods receipt when quantities fit, and flags any bill held for a GRN shortage on that PO |
 | Anything else | Marked unsupported and left for a person; nothing changes in the ERP |
 
-**Step-by-step guide:** [Build an agentic accounts-payable system for India with watsonx Orchestrate and Odoo](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC) ([Markdown version](docs/tutorial/README.md))
+**Step-by-step guide:** [Build an agentic accounts-payable system with watsonx Orchestrate and Odoo](https://claude.ai/artifact/LeZnzxhrq9psD5PNUU1rLC) ([Markdown version](docs/tutorial/README.md))
 
 ## See it in action
 
@@ -37,7 +37,7 @@ the flow or the agents.
 
 ## The business problem
 
-A typical Indian manufacturer receives 100–200 supplier invoices a day. Global AP suites handle capture and
+A mid-sized manufacturer receives 100–200 supplier invoices a day. Global AP suites handle capture and
 PO matching, but these steps usually stay manual:
 
 | Gap | What goes wrong | What the agent does |
@@ -89,7 +89,7 @@ PO matching, but these steps usually stay manual:
 - **Policy is a decision table.** Invoice routing (duplicate → block, any failed control → review, above
   the ₹25 lakh touchless limit → sign-off, otherwise post) and expense routing are decision-table nodes
   that AP can change in the flow editor without code.
-- **One engine.** `wxo/tools/apcore` (India rules, Odoo client, controls, booking) is deployed with the
+- **One engine.** `wxo/tools/apcore` (tax rules, Odoo client, controls, booking) is deployed with the
   tools and imported by the workbench for reviewer actions, so the rules never diverge.
 - **The ERP is the system of record.** Bills, review tasks (`mail.activity`) and the agent's control log
   (chatter) live in Odoo. Approvals made through the Copilot or directly in Odoo sync back to the workbench.
@@ -105,7 +105,7 @@ Defined in `wxo/controls/*.yaml`, imported by `deploy.sh`, and shown live on the
 |---|---|---|---|---|
 | Supplier Desk · content guardrails | Content Guardrails | `supplier_desk_agent` | input | External channel: blocks jailbreaks and abuse before the agent sees them |
 | Supplier Desk · PII masking | PII Filter | `supplier_desk_agent` | output | Bank accounts, emails and phone numbers never reach a supplier |
-| Supplier Desk · IFSC and account redaction | Regex Pattern | `supplier_desk_agent` | output | India identifiers the generic PII filter does not know |
+| Supplier Desk · IFSC and account redaction | Regex Pattern | `supplier_desk_agent` | output | Bank identifiers the generic PII filter does not know |
 | Supplier tools · rate limit | Rate Limiter | supplier status tools | tool call | 20 calls a minute stops GSTIN or invoice enumeration |
 | AP Copilot · approval rate limit | Rate Limiter | `approve_ap_exception` | tool call | Caps the blast radius of the only write tool |
 | AP Copilot · secrets detector | Secrets Detector | `ap_copilot_agent` | input + output | Staff paste portal text; credentials are redacted |
@@ -119,7 +119,7 @@ Model-level controls on the tenant bind to custom (virtual) models, so the fallb
 | Path | Purpose |
 |---|---|
 | `wxo/flows/ap_document_processing_flow.py` | The process: read and classify → branch per document type → controls → decision tables → Odoo |
-| `wxo/tools/apcore/` | Shared engine: India rules, Odoo client, invoice controls and booking, expense policy, PO / GRN handling |
+| `wxo/tools/apcore/` | Shared engine: tax rules, Odoo client, invoice controls and booking, expense policy, PO / GRN handling |
 | `wxo/tools/` | Flow process tools and agent tools; Odoo credentials come from the `odoo_erp` key-value connection |
 | `wxo/controls/` | Control-plane policies (guardrails, PII, regex, rate limits, secrets) |
 | `wxo/agents/` | `ap_copilot_agent` (internal) and `supplier_desk_agent` (external) |
@@ -135,7 +135,7 @@ Model-level controls on the tenant bind to custom (virtual) models, so the fallb
 uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements.txt
 cp .env.example .env            # fill in wxO, Odoo and (optionally) Gmail
 
-# 1. ERP: works on any Odoo 18+ database with Indian localisation (a free trial is fine)
+# 1. ERP: any Odoo 18+ database with the l10n_in localisation (a free trial is fine)
 .venv/bin/python scripts/setup_odoo.py
 
 # 2. watsonx Orchestrate
@@ -183,6 +183,8 @@ the goods it received, so every run starts clean.
 
 ## Notes
 
+- The sample company uses Indian GST and TDS as its worked example of local tax rules. They live in one
+  module, `wxo/tools/apcore/india.py`, so another country's rules can replace them without changing the flow.
 - TDS sections follow the Income-tax Act, 2025 numbering used by Odoo's `l10n_in` taxes, with legacy 1961
   references shown alongside. Rates and thresholds in `wxo/tools/apcore/india.py` and the expense policy in `apcore/expenses.py` are demo defaults; confirm them with
   your tax team.
